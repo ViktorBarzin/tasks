@@ -195,6 +195,28 @@ describe('filterTasks / filterGroups', () => {
 	});
 });
 
+describe('orphaned tasks (List gone, §E)', () => {
+	it('are excluded from every Smart View, search, and the counts', () => {
+		const s = state([
+			task('live', { due: '2026-07-03' }),
+			task('orphan', { due: '2026-07-03', list_id: 'ghost', notes: 'live' })
+		]);
+		expect(buildTodayView(s, { showCompleted: false, now: NOW }).map((t) => t.title)).toEqual([
+			'live'
+		]);
+		const scheduled = buildScheduledView(s, { showCompleted: false, now: NOW });
+		expect(scheduled.flatMap((g) => g.tasks.map((t) => t.title))).toEqual(['live']);
+		const all = buildAllView(s, { showCompleted: false, now: NOW });
+		expect(all.flatMap((g) => g.tasks.map((t) => t.title))).toEqual(['live']);
+		// "live" matches both the title and the orphan's notes; only the live one surfaces.
+		expect(searchTasks(s, 'live').map((h) => h.task.title)).toEqual(['live']);
+		const counts = viewCounts(s, NOW);
+		expect(counts.today).toBe(1);
+		expect(counts.all).toBe(1);
+		expect(counts.byList.has('ghost')).toBe(false);
+	});
+});
+
 describe('viewCounts / sortedLists', () => {
 	it('counts open tasks for tiles and per list', () => {
 		const s = state([

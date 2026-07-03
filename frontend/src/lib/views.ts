@@ -58,7 +58,10 @@ function visible(t: Task, opts: ViewOptions): boolean {
 }
 
 function allTasks(state: ReplicaState): Task[] {
-	return [...state.tasks.values()];
+	// Defensively exclude Tasks whose List no longer exists in the Replica (a
+	// mid-cascade fold, or a List tombstone that outran its Tasks): a deleted
+	// List takes its Tasks with it (contract-delta E). Feeds every Smart View.
+	return [...state.tasks.values()].filter((t) => state.lists.has(t.list_id));
 }
 
 /** Lists in stable alphabetical order. */
@@ -162,6 +165,7 @@ export function viewCounts(state: ReplicaState, now: Date): ViewCounts {
 	let scheduled = 0;
 	let all = 0;
 	for (const t of state.tasks.values()) {
+		if (!state.lists.has(t.list_id)) continue; // orphaned by a List tombstone
 		if (t.completed) continue;
 		all += 1;
 		if (t.due) scheduled += 1;

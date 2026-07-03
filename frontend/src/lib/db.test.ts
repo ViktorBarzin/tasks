@@ -109,6 +109,26 @@ describe('replica storage', () => {
 		expect(replica.tasks.size).toBe(0);
 	});
 
+	it('a delta List tombstone cascades to that list’s tasks (§E)', async () => {
+		await db.applySyncPayload({
+			cursor: 'c1',
+			full: true,
+			lists: [list('l1'), list('l2')],
+			tasks: [task('a', 'l1'), task('b', 'l1'), task('c', 'l2')]
+		});
+		await db.applySyncPayload({
+			cursor: 'c2',
+			full: false,
+			lists: [list('l1', 'l1', true)], // tombstone
+			tasks: []
+		});
+		const replica = await db.readReplica();
+		expect(replica.lists.has('l1')).toBe(false);
+		expect(replica.tasks.has('a')).toBe(false);
+		expect(replica.tasks.has('b')).toBe(false);
+		expect(replica.tasks.has('c')).toBe(true); // other list untouched
+	});
+
 	it('deleting a list locally cascades to its tasks', async () => {
 		await db.applySyncPayload({
 			cursor: 'c1',

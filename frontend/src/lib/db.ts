@@ -100,8 +100,14 @@ export async function applySyncPayload(payload: SyncPayload): Promise<void> {
 		await tasks.clear();
 	}
 	for (const l of payload.lists) {
-		if (l.deleted) await lists.delete(l.id);
-		else await lists.put(plain(l));
+		if (l.deleted) {
+			await lists.delete(l.id);
+			// Cascade: a List tombstone removes every Task it held, mirroring
+			// the local list_delete cascade (contract-delta section E).
+			for (const uid of await tasks.index('by-list').getAllKeys(l.id)) {
+				await tasks.delete(uid);
+			}
+		} else await lists.put(plain(l));
 	}
 	for (const t of payload.tasks) {
 		if (t.deleted) await tasks.delete(t.uid);
