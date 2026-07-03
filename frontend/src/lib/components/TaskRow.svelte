@@ -76,14 +76,17 @@
 </div>
 
 <style>
+	/* The green lives on the underlay, not the wrapper — the wrapper matches
+	   the card so translucent hairline separators don't blend over green. */
 	.row-wrap {
 		position: relative;
-		background: #34c759;
+		background: var(--card);
 	}
 
 	.swipe-under {
 		position: absolute;
 		inset: 0;
+		background: #34c759;
 		display: flex;
 		align-items: center;
 		padding-left: 18px;
