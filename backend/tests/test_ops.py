@@ -338,6 +338,26 @@ def test_move_within_same_list_is_duplicate(onboarded_client: TestClient) -> Non
     assert results[0]["status"] == "duplicate"
 
 
+def test_move_locates_in_source_first_not_a_target_shadow(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # A half-finished earlier move left a copy in the target while the original
+    # still lives in the source. The op carries list_id (SOURCE) + to_list_id
+    # (DEST); the backend must locate in the source first and finish the move —
+    # NOT see the target shadow and wrongly report a no-op, stranding the source.
+    shadow = load_golden("nextcloud_simple.ics")
+    fake_nc.put_ics(NC_USER, "personal", f"{NC_SIMPLE_UID}.ics", shadow)  # target shadow
+
+    results = post_ops(
+        onboarded_client,
+        op("task_move", "m1", uid=NC_SIMPLE_UID, list_id="work", to_list_id="personal"),
+    )
+    assert results[0]["status"] == "applied"
+    # The source copy is gone; exactly one copy remains, in the target.
+    assert f"{NC_SIMPLE_UID}.ics" not in fake_nc.calendars[NC_USER]["work"].objects
+    assert task_by_uid(sync(onboarded_client), NC_SIMPLE_UID)["list_id"] == "personal"
+
+
 # -- list CRUD -------------------------------------------------------------------
 
 

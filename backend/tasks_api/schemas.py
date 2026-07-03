@@ -83,6 +83,9 @@ class Op(BaseModel):
 
     Kind-specific fields ride along as extras. Task ops carry ``uid``
     (``task_create``'s uid is client-generated); list ops carry ``list_id``.
+    For ``task_move`` the client sends BOTH ``list_id`` (SOURCE) and
+    ``to_list_id`` (DESTINATION) so the server locates the Task in its source
+    first (contract A / SYNC-1).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -91,6 +94,7 @@ class Op(BaseModel):
     kind: OpKind
     uid: str | None = None
     list_id: str | None = None
+    to_list_id: str | None = None
 
 
 class OpsRequest(BaseModel):

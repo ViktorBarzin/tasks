@@ -19,7 +19,7 @@ Kind-specific Op fields (the client sends exactly these):
   ``notes``, ``due``, ``due_has_time``, ``priority`` — present fields are set)
 - ``task_complete``: ``uid`` (+ optional ``completed_at`` ISO datetime)
 - ``task_uncomplete`` / ``task_delete``: ``uid``
-- ``task_move``: ``uid``, ``to_list_id``
+- ``task_move``: ``uid``, ``list_id`` (SOURCE hint), ``to_list_id`` (DESTINATION)
 - ``list_create``: ``list_id`` (client-generated, URL-safe), ``name``
 - ``list_rename``: ``list_id``, ``name``
 - ``list_delete``: ``list_id``
@@ -97,6 +97,12 @@ def _require_list_id(op: Op) -> str:
     if not op.list_id:
         raise OpError(f"{op.kind} requires list_id")
     return op.list_id
+
+
+def _require_to_list_id(op: Op) -> str:
+    if not op.to_list_id:
+        raise OpError(f"{op.kind} requires to_list_id")
+    return op.to_list_id
 
 
 def _require_str(op: Op, field: str) -> str:
@@ -232,9 +238,13 @@ async def _task_delete(engine: CalDAVEngine, lists: _ListCache, op: Op) -> Apply
 
 
 async def _task_move(engine: CalDAVEngine, lists: _ListCache, op: Op) -> ApplyStatus:
-    """Move = PUT the same UID into the target List, then DELETE the source."""
+    """Move = PUT the same UID into the target List, then DELETE the source.
+
+    Locates the Task in its SOURCE (``op.list_id`` hint) first, so a half-done
+    move that left a copy in the target does not shadow the source (contract A).
+    """
     uid = _require_uid(op)
-    to_list_id = _require_str(op, "to_list_id")
+    to_list_id = _require_to_list_id(op)
     infos = await lists.get()
     target = next((li for li in infos if li.id == to_list_id), None)
     if target is None:
