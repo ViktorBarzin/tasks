@@ -86,7 +86,7 @@
 			}
 			if (priority !== task.priority) patch.priority = priority;
 			if (Object.keys(patch).length) await updateTask(task.uid, patch);
-			if (listId && listId !== task.list_id) await moveTask(task.uid, listId);
+			if (listId && listId !== task.list_id) await moveTask(task.uid, listId, task.list_id);
 		} else {
 			await createTask(listId, { title: title.trim(), notes, due, due_has_time, priority });
 		}

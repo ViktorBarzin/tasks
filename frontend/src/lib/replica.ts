@@ -17,9 +17,15 @@ import type { Op, SyncPayload } from './types';
 export const replica = writable<ReplicaState>({ lists: new Map(), tasks: new Map() });
 export const replicaLoaded = writable(false);
 
-/** Hydrate the store from IndexedDB (app launch). */
+/**
+ * Hydrate the store from IndexedDB (app launch), then rebase still-pending Ops
+ * on top. A mutation persists its Op durably BEFORE its optimistic effect
+ * (recordOp), so a mid-write kill can leave a queued Op whose effect never hit
+ * the Replica; replaying the queue on load surfaces those edits offline
+ * (contract-delta §J).
+ */
 export async function loadReplica(): Promise<void> {
-	replica.set(await db.readReplica());
+	await readAndRebasePending();
 	replicaLoaded.set(true);
 }
 
@@ -69,7 +75,17 @@ async function persistOpEffect(state: ReplicaState, op: Op): Promise<void> {
  */
 export async function foldServerState(payload: SyncPayload): Promise<void> {
 	await db.applySyncPayload(payload);
-	let state = await db.readReplica();
+	await readAndRebasePending();
+}
+
+/**
+ * Read the durable Replica, replay every still-queued Op on top (in order) so
+ * unpushed local changes never visually vanish, publish the store, and
+ * re-persist those Op effects (a full snapshot just cleared them). Shared by
+ * cold launch (loadReplica) and post-fold rebase.
+ */
+async function readAndRebasePending(): Promise<void> {
+	let state: ReplicaState = await db.readReplica();
 	const pending = await db.peekOps(Number.MAX_SAFE_INTEGER);
 	for (const q of pending) state = applyOpToMaps(state, q.op);
 	replica.set(state);

@@ -86,8 +86,14 @@ export interface TaskUpdateOp extends OpBase, Partial<TaskFields> {
 export interface TaskCompleteOp extends OpBase {
 	kind: 'task_complete';
 	uid: string;
-	/** Client completion timestamp (ISO datetime). */
+	/** Client completion timestamp (ISO datetime) — the server's roll-forward base. */
 	completed_at: string;
+	/**
+	 * The DUE the client currently shows (ISO date | datetime | null), so the
+	 * server rolls the correct occurrence of a Recurring Task and treats an
+	 * already-advanced object as a duplicate (contract-delta §C).
+	 */
+	occurrence_due: string | null;
 }
 
 export interface TaskUncompleteOp extends OpBase {
@@ -95,11 +101,18 @@ export interface TaskUncompleteOp extends OpBase {
 	uid: string;
 }
 
-/** list_id is the destination List. */
+/**
+ * A Task move between Lists. Carries BOTH endpoints (contract-delta §A):
+ * `list_id` is the SOURCE List (a hint so the server locates the object in its
+ * origin first — a half-done move that left a target copy can't shadow it),
+ * `to_list_id` is the DESTINATION. Both are required; keep in lockstep with
+ * backend schemas.py.
+ */
 export interface TaskMoveOp extends OpBase {
 	kind: 'task_move';
 	uid: string;
 	list_id: string;
+	to_list_id: string;
 }
 
 export interface TaskDeleteOp extends OpBase {
@@ -136,7 +149,16 @@ export type Op =
 	| ListRenameOp
 	| ListDeleteOp;
 
-export type OpStatus = 'applied' | 'lww_reapplied' | 'duplicate' | 'error';
+/**
+ * Per-op replay outcome (contract-delta §B):
+ *  - applied / lww_reapplied / duplicate — terminal successes (the server has it);
+ *  - retry — transient upstream failure (Nextcloud 5xx / timeout); op NOT applied,
+ *    safe to resend. The server stops at the first retry, so ops after it are
+ *    omitted from the results and stay queued in order;
+ *  - error — permanent rejection (4xx / validation / unknown kind); never
+ *    succeeds as-is → the client dead-letters it.
+ */
+export type OpStatus = 'applied' | 'lww_reapplied' | 'duplicate' | 'retry' | 'error';
 
 export interface OpResult {
 	op_id: string;

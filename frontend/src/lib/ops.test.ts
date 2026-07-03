@@ -80,7 +80,8 @@ describe('applyOpToMaps', () => {
 			op_id: 'o',
 			kind: 'task_complete',
 			uid: 'a',
-			completed_at: '2026-07-03T10:00:00'
+			completed_at: '2026-07-03T10:00:00',
+			occurrence_due: null
 		});
 		expect(s.tasks.get('a')).toMatchObject({
 			completed: true,
@@ -90,12 +91,13 @@ describe('applyOpToMaps', () => {
 		expect(s.tasks.get('a')).toMatchObject({ completed: false, completed_at: null });
 	});
 
-	it('task_move rehomes the task', () => {
+	it('task_move rehomes the task to the destination (list_id is the source hint)', () => {
 		const s = applyOpToMaps(state([], [task('a')]), {
 			op_id: 'o',
 			kind: 'task_move',
 			uid: 'a',
-			list_id: 'l2'
+			list_id: 'l1',
+			to_list_id: 'l2'
 		});
 		expect(s.tasks.get('a')?.list_id).toBe('l2');
 	});

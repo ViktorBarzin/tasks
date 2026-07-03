@@ -3,9 +3,9 @@
  * idempotent replay per ADR-0001), records it (durable queue + optimistic
  * Replica apply), and kicks the sync engine. The UI calls only these.
  */
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 
-import { recordOp } from './replica';
+import { recordOp, replica } from './replica';
 import { syncNow } from './sync';
 import type { Priority, TaskFields } from './types';
 
@@ -51,11 +51,15 @@ export async function updateTask(uid: string, patch: Partial<TaskFields>): Promi
 }
 
 export async function completeTask(uid: string): Promise<void> {
+	// occurrence_due = the DUE the row currently shows, so the server rolls the
+	// right occurrence of a Recurring Task (contract-delta §C).
+	const occurrenceDue = get(replica).tasks.get(uid)?.due ?? null;
 	await recordOp({
 		op_id: uuid(),
 		kind: 'task_complete',
 		uid,
-		completed_at: new Date().toISOString()
+		completed_at: new Date().toISOString(),
+		occurrence_due: occurrenceDue
 	});
 	recentlyCompleted.update((s) => new Set(s).add(uid));
 	setTimeout(() => {
@@ -78,8 +82,17 @@ export async function uncompleteTask(uid: string): Promise<void> {
 	kick();
 }
 
-export async function moveTask(uid: string, listId: string): Promise<void> {
-	await recordOp({ op_id: uuid(), kind: 'task_move', uid, list_id: listId });
+/** Move a Task from `fromListId` (source) to `toListId` (destination). The Op
+ * carries both so the server can locate the object in its origin List first
+ * (contract-delta §A). */
+export async function moveTask(uid: string, toListId: string, fromListId: string): Promise<void> {
+	await recordOp({
+		op_id: uuid(),
+		kind: 'task_move',
+		uid,
+		list_id: fromListId,
+		to_list_id: toListId
+	});
 	kick();
 }
 

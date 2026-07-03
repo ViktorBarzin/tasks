@@ -16,7 +16,15 @@
 	import Onboarding from '$lib/components/Onboarding.svelte';
 	import * as db from '$lib/db';
 	import { loadReplica, replica } from '$lib/replica';
-	import { needsReconnect, startSync, syncNow } from '$lib/sync';
+	import { scheduleSwUpdates } from '$lib/pwa';
+	import {
+		deadOps,
+		needsLogin,
+		needsReconnect,
+		startSync,
+		syncNow,
+		syncStuck
+	} from '$lib/sync';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -32,9 +40,15 @@
 	onMount(async () => {
 		if ('serviceWorker' in navigator) {
 			// vite-plugin-pwa autoUpdate: the generated SW swaps itself in when a
-			// new deploy lands.
+			// new deploy lands. Poll for new deploys hourly + on foreground so an
+			// installed PWA doesn't pin a stale bundle (§K).
 			const { registerSW } = await import('virtual:pwa-register');
-			registerSW({ immediate: true });
+			registerSW({
+				immediate: true,
+				onRegisteredSW(_swUrl, registration) {
+					if (registration) scheduleSwUpdates(registration);
+				}
+			});
 		}
 
 		await loadReplica();
@@ -104,10 +118,23 @@
 
 <div class="app-shell">
 	{#if gate === 'app'}
-		{#if $needsReconnect && !showReconnect}
+		{#if $needsLogin}
+			<button class="reconnect-banner" onclick={() => window.location.assign('/')}>
+				Session expired — <strong>sign in</strong>
+			</button>
+		{:else if $needsReconnect && !showReconnect}
 			<button class="reconnect-banner" onclick={() => (showReconnect = true)}>
 				Nextcloud connection failed — <strong>Reconnect</strong>
 			</button>
+		{/if}
+		{#if $deadOps > 0}
+			<div class="dead-banner" role="status">
+				{$deadOps} task{$deadOps === 1 ? '' : 's'} couldn’t sync and {$deadOps === 1
+					? 'was'
+					: 'were'} set aside.
+			</div>
+		{:else if $syncStuck}
+			<div class="stuck-banner" role="status">Having trouble syncing — still retrying…</div>
 		{/if}
 		{@render children()}
 		{#if firstSync}
@@ -141,6 +168,26 @@
 		color: var(--danger);
 		font-size: 14px;
 		text-align: left;
+	}
+
+	.dead-banner,
+	.stuck-banner {
+		flex: none;
+		margin: calc(env(safe-area-inset-top) + 8px) 16px 0;
+		padding: 10px 14px;
+		border-radius: 12px;
+		font-size: 14px;
+		text-align: left;
+	}
+
+	.dead-banner {
+		background: color-mix(in srgb, var(--danger) 14%, var(--card));
+		color: var(--danger);
+	}
+
+	.stuck-banner {
+		background: color-mix(in srgb, var(--orange) 16%, var(--card));
+		color: var(--orange);
 	}
 
 	/* When the banner is present the screen's own navbar top inset doubles up;

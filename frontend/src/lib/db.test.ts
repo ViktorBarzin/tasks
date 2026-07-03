@@ -109,6 +109,26 @@ describe('replica storage', () => {
 		expect(replica.tasks.size).toBe(0);
 	});
 
+	it('a delta List tombstone cascades to that list’s tasks (§E)', async () => {
+		await db.applySyncPayload({
+			cursor: 'c1',
+			full: true,
+			lists: [list('l1'), list('l2')],
+			tasks: [task('a', 'l1'), task('b', 'l1'), task('c', 'l2')]
+		});
+		await db.applySyncPayload({
+			cursor: 'c2',
+			full: false,
+			lists: [list('l1', 'l1', true)], // tombstone
+			tasks: []
+		});
+		const replica = await db.readReplica();
+		expect(replica.lists.has('l1')).toBe(false);
+		expect(replica.tasks.has('a')).toBe(false);
+		expect(replica.tasks.has('b')).toBe(false);
+		expect(replica.tasks.has('c')).toBe(true); // other list untouched
+	});
+
 	it('deleting a list locally cascades to its tasks', async () => {
 		await db.applySyncPayload({
 			cursor: 'c1',
@@ -157,6 +177,16 @@ describe('op queue', () => {
 		await db.bumpAttempts(q!.seq!);
 		const [again] = await db.peekOps(1);
 		expect(again!.attempts).toBe(2);
+	});
+});
+
+describe('dead-letter store (§B)', () => {
+	it('parks permanently-failed ops out of the live queue and counts them', async () => {
+		expect(await db.deadOpCount()).toBe(0);
+		await db.deadLetterOp(createOp('x'), 'unknown kind');
+		await db.deadLetterOp(createOp('y'), null);
+		expect(await db.deadOpCount()).toBe(2);
+		expect(await db.opCount()).toBe(0); // dead-lettering doesn't touch the live queue
 	});
 });
 

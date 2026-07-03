@@ -16,17 +16,40 @@ export class ApiError extends Error {
 	}
 }
 
+/**
+ * The Authentik forward-auth wall, distinct from being offline or a bad
+ * Nextcloud password: the session with the SSO expired, so a request was
+ * bounced to the login page. Remediation is a full navigation to '/', which
+ * reaches Traefik→Authentik (contract-delta §I).
+ */
+export class AuthWallError extends Error {
+	constructor() {
+		super('auth-wall');
+		this.name = 'AuthWallError';
+	}
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(path, {
 		credentials: 'same-origin',
+		// Don't transparently follow the Authentik bounce to the SSO login (which
+		// returns 200 HTML and mimics a corrupt API reply). With manual redirect a
+		// cross-origin 3xx surfaces as an opaque redirect we can detect (§I).
+		redirect: 'manual',
 		...init,
 		headers: {
 			accept: 'application/json',
 			...(init?.body ? { 'content-type': 'application/json' } : {})
 		}
 	});
+	// Session expired: Traefik→Authentik redirected us to its login page.
+	if (res.type === 'opaqueredirect') throw new AuthWallError();
 	if (!res.ok) throw new ApiError(res.status, `${init?.method ?? 'GET'} ${path} → ${res.status}`);
 	if (res.status === 204) return undefined as T;
+	// An OK response that isn't JSON is the SSO login HTML served in place of the
+	// API (a same-origin wall that doesn't redirect) — the auth wall, not data.
+	const contentType = res.headers.get('content-type') ?? '';
+	if (!contentType.includes('application/json')) throw new AuthWallError();
 	return (await res.json()) as T;
 }
 

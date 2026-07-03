@@ -64,7 +64,8 @@ export function applyOpToMaps(state: ReplicaState, op: Op): ReplicaState {
 		}
 		case 'task_move': {
 			const t = tasks.get(op.uid);
-			if (t) tasks.set(op.uid, { ...t, list_id: op.list_id });
+			// list_id is the source hint; the Task rehomes to the destination.
+			if (t) tasks.set(op.uid, { ...t, list_id: op.to_list_id });
 			break;
 		}
 		case 'task_delete': {
