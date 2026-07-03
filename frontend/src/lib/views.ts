@@ -113,6 +113,26 @@ export function buildListView(state: ReplicaState, listId: string, opts: ViewOpt
 		.sort(compareWithCompletion);
 }
 
+function matchesQuery(t: Task, q: string): boolean {
+	return t.title.toLowerCase().includes(q) || t.notes.toLowerCase().includes(q);
+}
+
+/** Narrow an already-built flat view by the screen's search field. */
+export function filterTasks(tasks: Task[], query: string): Task[] {
+	const q = query.trim().toLowerCase();
+	if (!q) return tasks;
+	return tasks.filter((t) => matchesQuery(t, q));
+}
+
+/** Narrow a grouped view; groups emptied by the filter disappear. */
+export function filterGroups(groups: TaskGroup[], query: string): TaskGroup[] {
+	const q = query.trim().toLowerCase();
+	if (!q) return groups;
+	return groups
+		.map((g) => ({ ...g, tasks: g.tasks.filter((t) => matchesQuery(t, q)) }))
+		.filter((g) => g.tasks.length > 0);
+}
+
 export interface SearchHit {
 	task: Task;
 	listName: string;
@@ -123,7 +143,7 @@ export function searchTasks(state: ReplicaState, query: string): SearchHit[] {
 	const q = query.trim().toLowerCase();
 	if (!q) return [];
 	return allTasks(state)
-		.filter((t) => t.title.toLowerCase().includes(q) || t.notes.toLowerCase().includes(q))
+		.filter((t) => matchesQuery(t, q))
 		.sort(compareWithCompletion)
 		.map((task) => ({ task, listName: state.lists.get(task.list_id)?.name ?? '' }));
 }

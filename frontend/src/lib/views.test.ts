@@ -7,6 +7,8 @@ import {
 	buildListView,
 	buildScheduledView,
 	buildTodayView,
+	filterGroups,
+	filterTasks,
 	searchTasks,
 	sortedLists,
 	viewCounts
@@ -159,6 +161,37 @@ describe('searchTasks', () => {
 
 	it('returns nothing for a blank query', () => {
 		expect(searchTasks(state([task('x')]), '  ')).toEqual([]);
+	});
+});
+
+describe('filterTasks / filterGroups', () => {
+	it('filters a built view by title/notes, preserving order', () => {
+		const rows = [
+			task('Buy milk'),
+			task('call plumber', { notes: 'about the milk frother' }),
+			task('unrelated')
+		];
+		expect(filterTasks(rows, 'MILK').map((t) => t.title)).toEqual(['Buy milk', 'call plumber']);
+	});
+
+	it('blank query keeps every row', () => {
+		const rows = [task('a'), task('b')];
+		expect(filterTasks(rows, '  ')).toEqual(rows);
+	});
+
+	it('filters within groups and drops groups left empty', () => {
+		const groups = [
+			{ key: 'g1', heading: 'One', tasks: [task('milk'), task('bread')] },
+			{ key: 'g2', heading: 'Two', tasks: [task('report')] }
+		];
+		const out = filterGroups(groups, 'milk');
+		expect(out.map((g) => g.key)).toEqual(['g1']);
+		expect(out[0]!.tasks.map((t) => t.title)).toEqual(['milk']);
+	});
+
+	it('blank query returns groups untouched', () => {
+		const groups = [{ key: 'g', heading: 'G', tasks: [task('x')] }];
+		expect(filterGroups(groups, '')).toEqual(groups);
 	});
 });
 
