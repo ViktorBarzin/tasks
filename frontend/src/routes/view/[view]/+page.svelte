@@ -16,7 +16,7 @@
 	import TaskSheet from '$lib/components/TaskSheet.svelte';
 	import { todayKey } from '$lib/dates';
 	import { replica } from '$lib/replica';
-	import type { Task } from '$lib/types';
+	import type { Priority, Task } from '$lib/types';
 	import { now } from '$lib/ui/clock';
 	import { listColor } from '$lib/ui/listColors';
 	import {
@@ -46,6 +46,17 @@
 	let query = $state('');
 	let showCompleted = $state(false);
 	let sheetTask = $state<Task | null>(null);
+
+	// Quick-add draft (bindable into QuickAdd); the expand chevron hands it to
+	// the New-Task sheet, which clears it only when it actually creates.
+	let draftTitle = $state('');
+	let draftPriority = $state<Priority>(0);
+	let createOpen = $state(false);
+
+	function clearDraft(): void {
+		draftTitle = '';
+		draftPriority = 0;
+	}
 
 	let lists = $derived(sortedLists($replica));
 	let opts = $derived<ViewOptions>({
@@ -85,10 +96,10 @@
 
 	/** Quick-add: first List; Today/Scheduled default the Due to today so the
 	 * new Task stays visible in the view it was typed into. */
-	async function quickAdd(title: string): Promise<void> {
+	async function quickAdd(fields: { title: string; priority: Priority }): Promise<void> {
 		const listId = lists[0]?.id;
 		if (!listId) return;
-		await createTask(listId, view === 'all' ? { title } : { title, due: todayKey() });
+		await createTask(listId, view === 'all' ? fields : { ...fields, due: todayKey() });
 	}
 </script>
 
@@ -96,7 +107,12 @@
 	<Screen title={cfg.title} tint={cfg.color} back={{ href: '/', label: 'Lists' }}>
 		{#snippet bottom()}
 			{#if lists.length > 0}
-				<QuickAdd onadd={quickAdd} />
+				<QuickAdd
+					bind:text={draftTitle}
+					bind:priority={draftPriority}
+					onadd={quickAdd}
+					onexpand={() => (createOpen = true)}
+				/>
 			{/if}
 		{/snippet}
 
@@ -153,6 +169,18 @@
 {/if}
 
 <TaskSheet open={sheetTask !== null} task={sheetTask} onclose={() => (sheetTask = null)} />
+
+<!-- Expanded quick-add: create sheet prefilled with the draft; Today/Scheduled
+     seed the due so the new Task stays visible in this view (v0.2 feature 3). -->
+<TaskSheet
+	open={createOpen}
+	defaultListId={lists[0]?.id ?? ''}
+	defaultDue={view === 'all' ? null : todayKey()}
+	defaultTitle={draftTitle}
+	defaultPriority={draftPriority}
+	onsaved={clearDraft}
+	onclose={() => (createOpen = false)}
+/>
 
 <style>
 	.group-heading {

@@ -17,7 +17,7 @@
 	import TaskRow from '$lib/components/TaskRow.svelte';
 	import TaskSheet from '$lib/components/TaskSheet.svelte';
 	import { replica, replicaLoaded } from '$lib/replica';
-	import type { Task } from '$lib/types';
+	import type { Priority, Task } from '$lib/types';
 	import { now } from '$lib/ui/clock';
 	import { listColor } from '$lib/ui/listColors';
 	import { buildListView, filterTasks } from '$lib/views';
@@ -33,6 +33,17 @@
 	let renameOpen = $state(false);
 	let deleteOpen = $state(false);
 
+	// Quick-add draft (bindable into QuickAdd); the expand chevron hands it to
+	// the New-Task sheet, which clears it only when it actually creates.
+	let draftTitle = $state('');
+	let draftPriority = $state<Priority>(0);
+	let createOpen = $state(false);
+
+	function clearDraft(): void {
+		draftTitle = '';
+		draftPriority = 0;
+	}
+
 	let rows = $derived(
 		filterTasks(
 			buildListView($replica, listId, { showCompleted, now: $now, grace: $recentlyCompleted }),
@@ -45,8 +56,8 @@
 		).length
 	);
 
-	async function quickAdd(title: string): Promise<void> {
-		await createTask(listId, { title });
+	async function quickAdd(fields: { title: string; priority: Priority }): Promise<void> {
+		await createTask(listId, fields);
 	}
 
 	async function rename(name: string): Promise<void> {
@@ -77,7 +88,12 @@
 		{/snippet}
 
 		{#snippet bottom()}
-			<QuickAdd onadd={quickAdd} />
+			<QuickAdd
+				bind:text={draftTitle}
+				bind:priority={draftPriority}
+				onadd={quickAdd}
+				onexpand={() => (createOpen = true)}
+			/>
 		{/snippet}
 
 		<input
@@ -116,6 +132,16 @@
 {/if}
 
 <TaskSheet open={sheetTask !== null} task={sheetTask} onclose={() => (sheetTask = null)} />
+
+<!-- Expanded quick-add: create sheet prefilled with the draft (v0.2 feature 3). -->
+<TaskSheet
+	open={createOpen}
+	defaultListId={listId}
+	defaultTitle={draftTitle}
+	defaultPriority={draftPriority}
+	onsaved={clearDraft}
+	onclose={() => (createOpen = false)}
+/>
 
 <ActionMenu
 	open={menuOpen}

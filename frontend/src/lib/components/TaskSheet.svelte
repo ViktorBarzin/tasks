@@ -22,9 +22,23 @@
 		task?: Task | null;
 		defaultListId?: string;
 		defaultDue?: string | null;
+		/** Create mode: prefill from a quick-add draft (v0.2 feature 3). */
+		defaultTitle?: string;
+		defaultPriority?: Priority;
+		/** Fired after the sheet actually saved (created/updated), before onclose. */
+		onsaved?: () => void;
 		onclose: () => void;
 	}
-	let { open, task = null, defaultListId = '', defaultDue = null, onclose }: Props = $props();
+	let {
+		open,
+		task = null,
+		defaultListId = '',
+		defaultDue = null,
+		defaultTitle = '',
+		defaultPriority = 0,
+		onsaved,
+		onclose
+	}: Props = $props();
 
 	const PRIORITIES: { value: Priority; label: string }[] = [
 		{ value: 0, label: 'None' },
@@ -61,11 +75,11 @@
 			priority = task.priority;
 			listId = task.list_id;
 		} else {
-			title = '';
+			title = defaultTitle;
 			notes = '';
 			date = defaultDue ? defaultDue.slice(0, 10) : '';
 			time = '';
-			priority = 0;
+			priority = defaultPriority;
 			listId = defaultListId || lists[0]?.id || '';
 		}
 	}
@@ -88,8 +102,10 @@
 			if (Object.keys(patch).length) await updateTask(task.uid, patch);
 			if (listId && listId !== task.list_id) await moveTask(task.uid, listId, task.list_id);
 		} else {
+			// One task_create op carrying the full field set (contract v1.2 §3).
 			await createTask(listId, { title: title.trim(), notes, due, due_has_time, priority });
 		}
+		onsaved?.();
 		onclose();
 	}
 
