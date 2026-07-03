@@ -40,6 +40,14 @@ class CalDAVUnauthorized(CalDAVError):
     """Nextcloud rejected the app password (revoked/rotated → re-onboard)."""
 
 
+class CalDAVTransient(CalDAVError):
+    """A transient upstream failure — Nextcloud 5xx or a network timeout.
+
+    The write was NOT durably applied, so the op is safe to resend; the ops
+    router reports it as ``retry`` (contract B) rather than a permanent error.
+    """
+
+
 class CalDAVNotFound(CalDAVError):
     """The object or collection does not exist."""
 
@@ -161,11 +169,19 @@ class CalDAVEngine:
         headers: dict[str, str] | None = None,
         content: bytes | None = None,
     ) -> httpx.Response:
-        response = await self._client.request(
-            method, self._url(path), headers=headers or {}, content=content
-        )
+        try:
+            response = await self._client.request(
+                method, self._url(path), headers=headers or {}, content=content
+            )
+        except httpx.TimeoutException as exc:
+            raise CalDAVTransient(f"{method} {path}: upstream timed out") from exc
+        except httpx.TransportError as exc:
+            raise CalDAVTransient(f"{method} {path}: upstream transport error: {exc}") from exc
         if response.status_code == 401:
             raise CalDAVUnauthorized(f"{method} {path}: Nextcloud rejected the credentials")
+        if response.status_code >= 500:
+            # Transient upstream (Nextcloud/sabre) failure — resendable (B).
+            raise CalDAVTransient(f"{method} {path}: upstream HTTP {response.status_code}")
         return response
 
     @staticmethod

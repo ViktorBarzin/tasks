@@ -17,9 +17,10 @@ Kind-specific Op fields (the client sends exactly these):
   ``due_has_time``, ``priority``)
 - ``task_update``: ``uid`` (+ ``list_id`` locator hint, and any of ``title``,
   ``notes``, ``due``, ``due_has_time``, ``priority`` — present fields are set)
-- ``task_complete``: ``uid`` (+ optional ``completed_at`` ISO datetime)
+- ``task_complete``: ``uid`` (+ ``completed_at`` ISO datetime, ``occurrence_due``
+  ISO date|datetime|null — the DUE the client saw; guards double roll-forward)
 - ``task_uncomplete`` / ``task_delete``: ``uid``
-- ``task_move``: ``uid``, ``to_list_id``
+- ``task_move``: ``uid``, ``list_id`` (SOURCE hint), ``to_list_id`` (DESTINATION)
 - ``list_create``: ``list_id`` (client-generated, URL-safe), ``name``
 - ``list_rename``: ``list_id``, ``name``
 - ``list_delete``: ``list_id``
@@ -29,10 +30,11 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Final, Literal, get_args
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tasks_api import ics_mapper
@@ -43,6 +45,7 @@ from tasks_api.caldav_engine import (
     CalDAVError,
     CalDAVNotFound,
     CalDAVPreconditionFailed,
+    CalDAVTransient,
     CalDAVUnauthorized,
     ListInfo,
     ObjectState,
@@ -51,7 +54,7 @@ from tasks_api.deps import engine_for_account, get_session
 from tasks_api.ics_mapper import MapperError
 from tasks_api.models import AppliedOp
 from tasks_api.recurrence import RecurrenceError
-from tasks_api.schemas import Op, OpResult, OpsRequest, OpsResponse
+from tasks_api.schemas import Op, OpKind, OpResult, OpsRequest, OpsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,8 @@ router = APIRouter()
 
 _MAX_ETAG_RETRIES = 3
 _LIST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+#: The kinds the batch will attempt; anything else is a per-op ``error`` (B).
+_VALID_KINDS: Final[frozenset[str]] = frozenset(get_args(OpKind))
 
 ApplyStatus = Literal["applied", "lww_reapplied", "duplicate"]
 
@@ -97,6 +102,12 @@ def _require_list_id(op: Op) -> str:
     if not op.list_id:
         raise OpError(f"{op.kind} requires list_id")
     return op.list_id
+
+
+def _require_to_list_id(op: Op) -> str:
+    if not op.to_list_id:
+        raise OpError(f"{op.kind} requires to_list_id")
+    return op.to_list_id
 
 
 def _require_str(op: Op, field: str) -> str:
@@ -193,11 +204,36 @@ def _parse_completed_at(op: Op) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def _parse_occurrence_due(op: Op) -> tuple[bool, str | None]:
+    """The DUE the client saw for this occurrence: ``(provided, value)``.
+
+    ``provided`` distinguishes "absent" from an explicit ``null`` (a Task the
+    client saw with no DUE); the guard only fires when the client actually
+    reported the occurrence it completed.
+    """
+    extras = _extras(op)
+    if "occurrence_due" not in extras:
+        return False, None
+    raw = extras["occurrence_due"]
+    if raw is None:
+        return True, None
+    if not isinstance(raw, str):
+        raise OpError(f"invalid occurrence_due {raw!r}")
+    return True, raw
+
+
 async def _task_complete(
     engine: CalDAVEngine, lists: _ListCache, op: Op, now: datetime
 ) -> ApplyStatus:
     completed_at = _parse_completed_at(op)
+    occurrence_due_provided, occurrence_due = _parse_occurrence_due(op)
     _, state = await _require_task(engine, lists, op)
+    if occurrence_due_provided:
+        parsed = ics_mapper.parse_task(state.ics)
+        if parsed is not None and parsed.recurring and parsed.due != occurrence_due:
+            # DUE already advanced past the occurrence the client saw → this
+            # completion was applied elsewhere; do not roll a second time (C).
+            return "duplicate"
     return await _rmw(
         engine, state, lambda ics: ics_mapper.apply_complete(ics, now, completed_at)
     )
@@ -232,9 +268,13 @@ async def _task_delete(engine: CalDAVEngine, lists: _ListCache, op: Op) -> Apply
 
 
 async def _task_move(engine: CalDAVEngine, lists: _ListCache, op: Op) -> ApplyStatus:
-    """Move = PUT the same UID into the target List, then DELETE the source."""
+    """Move = PUT the same UID into the target List, then DELETE the source.
+
+    Locates the Task in its SOURCE (``op.list_id`` hint) first, so a half-done
+    move that left a copy in the target does not shadow the source (contract A).
+    """
     uid = _require_uid(op)
-    to_list_id = _require_str(op, "to_list_id")
+    to_list_id = _require_to_list_id(op)
     infos = await lists.get()
     target = next((li for li in infos if li.id == to_list_id), None)
     if target is None:
@@ -348,13 +388,30 @@ async def apply_ops(
         if op.op_id in journaled:
             results.append(OpResult(op_id=op.op_id, status="duplicate", error=None))
             continue
+        if op.kind not in _VALID_KINDS:
+            # Unknown/unsupported kind is a permanent, isolated per-op error —
+            # never a whole-batch 422 (contract B).
+            results.append(
+                OpResult(op_id=op.op_id, status="error", error=f"unknown op kind {op.kind!r}")
+            )
+            continue
         try:
             status = await _apply_op(engine, lists, op, now)
+        except CalDAVUnauthorized:
+            raise  # whole batch aborts → 401 envelope → client re-onboards
+        except CalDAVTransient as exc:
+            # Transient upstream (Nextcloud 5xx / timeout): the op did NOT apply.
+            # STOP the batch here — this op and every op after it stay queued in
+            # order (omitted from results) for the next drain (contract B).
+            logger.info(
+                "op deferred, transient upstream failure — batch stopped",
+                extra={"user": username, "op_id": op.op_id, "kind": op.kind, "error": str(exc)},
+            )
+            results.append(OpResult(op_id=op.op_id, status="retry", error=str(exc)))
+            break
         except (OpError, MapperError, RecurrenceError) as exc:
             results.append(OpResult(op_id=op.op_id, status="error", error=str(exc)))
             continue
-        except CalDAVUnauthorized:
-            raise  # whole batch aborts → 401 envelope → client re-onboards
         except CalDAVError as exc:
             logger.warning(
                 "op failed against Nextcloud",
@@ -365,7 +422,16 @@ async def apply_ops(
         session.add(
             AppliedOp(authentik_username=username, op_id=op.op_id, kind=op.kind, status=status)
         )
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Another in-flight request journaled this op_id first (the
+            # check-then-act window the pre-SELECT cannot close). The CalDAV
+            # side is idempotent, so the effect happened exactly once — the
+            # unique op_id makes this a duplicate, not a crash (contract C).
+            await session.rollback()
+            results.append(OpResult(op_id=op.op_id, status="duplicate", error=None))
+            continue
         journaled.add(op.op_id)
         if status == "lww_reapplied":
             logger.info(

@@ -183,6 +183,43 @@ def test_naive_due_stays_floating() -> None:
     assert b"DUE:20260709T180000" in unfold_lines(modified)
 
 
+# -- inconsistent due fields (SYNC-12 / contract L) --------------------------
+
+
+def test_due_has_time_without_due_is_rejected_not_silently_cleared() -> None:
+    # due_has_time:true with no due value used to silently WIPE DUE. Guard it.
+    original = load_golden("apple_daily_count.ics")  # has DUE:20260701T054500Z
+    with pytest.raises(MapperError):
+        ics_mapper.apply_fields(original, {"due_has_time": True}, NOW)
+
+
+def test_lone_due_has_time_flag_does_not_touch_due() -> None:
+    # A stray due_has_time (either truthiness) without a due value is a client
+    # bug; the guard refuses rather than clobbering the stored DUE.
+    original = load_golden("apple_daily_count.ics")
+    with pytest.raises(MapperError):
+        ics_mapper.apply_fields(original, {"due_has_time": False}, NOW)
+
+
+def test_datetime_due_without_flag_is_normalized_to_timed() -> None:
+    # A date-time-shaped due with no due_has_time used to raise a confusing
+    # "invalid date" error; normalize the flag from the value shape instead.
+    original = load_golden("nextcloud_simple.ics")
+    modified = ics_mapper.apply_fields(original, {"due": "2026-07-09T18:00:00"}, NOW)
+    assert b"DUE:20260709T180000" in unfold_lines(modified)
+    parsed = ics_mapper.parse_task(modified)
+    assert parsed is not None
+    assert parsed.due == "2026-07-09T18:00:00"
+    assert parsed.due_has_time is True
+
+
+def test_date_due_without_flag_stays_all_day() -> None:
+    # The consistent all-day path (bare date, no flag) must keep working.
+    original = load_golden("nextcloud_simple.ics")
+    modified = ics_mapper.apply_fields(original, {"due": "2026-07-20"}, NOW)
+    assert b"DUE;VALUE=DATE:20260720" in unfold_lines(modified)
+
+
 def test_notes_set_and_clear() -> None:
     original = load_golden("nextcloud_simple.ics")
     with_notes = ics_mapper.apply_fields(original, {"notes": "line1\nline2, ok"}, NOW)
@@ -242,6 +279,23 @@ def test_complete_honors_client_completed_at() -> None:
         completed_at=datetime(2026, 7, 2, 8, 30, tzinfo=UTC),
     )
     assert b"COMPLETED:20260702T083000Z" in unfold_lines(done)
+
+
+def test_complete_recurring_rolls_from_completed_at_not_replay_now() -> None:
+    # A long-overdue recurring completion replayed a week later must roll to the
+    # occurrence after the COMPLETION instant, not after replay-time now (C).
+    ics = (
+        b"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\n"
+        b"BEGIN:VTODO\r\nUID:c-1\r\nSUMMARY:daily\r\n"
+        b"DUE:20260601T054500Z\r\nRRULE:FREQ=DAILY\r\nSTATUS:NEEDS-ACTION\r\n"
+        b"END:VTODO\r\nEND:VCALENDAR\r\n"
+    )
+    completed_at = datetime(2026, 7, 3, 8, 0, tzinfo=UTC)
+    replay_now = datetime(2026, 7, 10, 0, 0, tzinfo=UTC)  # a week after completion
+    rolled = ics_mapper.apply_complete(ics, replay_now, completed_at=completed_at)
+    lines = unfold_lines(rolled)
+    assert b"DUE:20260704T054500Z" in lines  # next after 07-03 08:00, NOT after 07-10
+    assert b"STATUS:NEEDS-ACTION" in lines
 
 
 def test_complete_recurring_rolls_forward_and_preserves_alarm() -> None:

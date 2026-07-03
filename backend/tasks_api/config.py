@@ -6,6 +6,10 @@ from dataclasses import dataclass
 USERNAME_HEADER = "X-Authentik-Username"
 DEFAULT_DB_DSN = "sqlite+aiosqlite:///./tasks.db"
 DEFAULT_CALDAV_BASE_URL = "https://nextcloud.viktorbarzin.me/remote.php/dav"
+#: Household-local timezone for all-day recurrence roll-forward (SYNC-11): the
+#: next occurrence of a date-valued DUE is computed in this wall-clock zone,
+#: never UTC. Single source of truth, overridable via ``TASKS_LOCAL_TZ``.
+DEFAULT_LOCAL_TIMEZONE = "Europe/Sofia"
 
 
 @dataclass(frozen=True)
@@ -20,12 +24,15 @@ class Settings:
       forward-auth header is absent.
     - ``caldav_base_url``: ``TASKS_CALDAV_BASE_URL`` — the Nextcloud DAV root;
       the production default is the household Nextcloud.
+    - ``local_timezone``: ``TASKS_LOCAL_TZ`` — the wall-clock zone for all-day
+      recurrence roll-forward (SYNC-11); defaults to the household's Sofia.
     """
 
     db_dsn: str = DEFAULT_DB_DSN
     fernet_key: str | None = None
     dev_user: str | None = None
     caldav_base_url: str = DEFAULT_CALDAV_BASE_URL
+    local_timezone: str = DEFAULT_LOCAL_TIMEZONE
 
 
 def get_settings() -> Settings:
@@ -35,4 +42,5 @@ def get_settings() -> Settings:
         fernet_key=os.environ.get("TASKS_FERNET_KEY"),
         dev_user=os.environ.get("DEV_USER"),
         caldav_base_url=os.environ.get("TASKS_CALDAV_BASE_URL", DEFAULT_CALDAV_BASE_URL),
+        local_timezone=os.environ.get("TASKS_LOCAL_TZ", DEFAULT_LOCAL_TIMEZONE),
     )

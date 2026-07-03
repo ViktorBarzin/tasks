@@ -36,6 +36,19 @@ def test_validation_error_is_422_envelope(client: TestClient) -> None:
     _assert_envelope(response.json(), "validation_error")
 
 
+def test_validation_error_does_not_echo_app_password(client: TestClient) -> None:
+    # CWE-209 (SEC-2): a validation failure must never serialize Pydantic's
+    # ``input``, which for a missing sibling field is the whole submitted body —
+    # here that carries the plaintext app password.
+    secret = "super-secret-app-password"
+    response = client.post("/api/onboard", json={"app_password": secret}, headers=auth())
+    assert response.status_code == 422
+    _assert_envelope(response.json(), "validation_error")
+    assert secret not in response.text
+    # The field that actually failed is still named, so the client can react.
+    assert "nc_username" in response.json()["error"]["message"]
+
+
 def test_revoked_app_password_turns_sync_into_401(
     onboarded_client: TestClient, fake_nc: FakeNextcloud
 ) -> None:

@@ -43,6 +43,21 @@ def error_response(status_code: int, code: str, message: str) -> JSONResponse:
     )
 
 
+def _summarize_validation(exc: RequestValidationError) -> str:
+    """Field-name + message only — NEVER Pydantic's ``input`` (CWE-209, SEC-2).
+
+    ``exc.errors()`` embeds the offending ``input``; for a missing field that
+    input is the whole request body, which on /onboard carries the plaintext
+    app password. We surface just the field location and the human message.
+    """
+    parts: list[str] = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err.get("loc", ()) if p != "body")
+        msg = str(err.get("msg", "invalid"))
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    return "; ".join(parts) or "validation error"
+
+
 def install_error_handlers(app: FastAPI) -> None:
     """Route every error through the envelope."""
 
@@ -59,7 +74,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def handle_validation_error(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        return error_response(422, "validation_error", str(exc.errors()))
+        return error_response(422, "validation_error", _summarize_validation(exc))
 
     @app.exception_handler(CalDAVUnauthorized)
     async def handle_caldav_unauthorized(
