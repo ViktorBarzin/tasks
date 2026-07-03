@@ -35,8 +35,10 @@ iPhone/desktop PWA (SvelteKit, IndexedDB Replica + Op Queue, service worker)
 FastAPI backend (single container; serves SPA statics + API)
   ├─ auth: trusts X-authentik-username (Authentik forward-auth at Traefik)
   ├─ Connected Accounts: Postgres `tasks` DB (CNPG pg-cluster), Fernet key from Vault
-  ├─ CalDAV engine: python-caldav per user (their app password), sync-tokens per List,
-  │   ETag-checked writes, ICS ↔ JSON mapping (icalendar), RRULE roll-forward (dateutil)
+  ├─ CalDAV engine: hand-rolled DAV over httpx per user (their app password) — not
+  │   python-caldav, so tests mock the wire via a swappable httpx transport — with
+  │   sync-tokens per List, ETag-checked writes, ICS ↔ JSON mapping (icalendar),
+  │   RRULE roll-forward (dateutil)
   └─ delta cursor = opaque blob wrapping per-List CalDAV sync-tokens
         │  CalDAV (https, app passwords)
         ▼

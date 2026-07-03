@@ -17,4 +17,5 @@ for a household app).
 
 Consequence: correctness lives in the sync engine (cursor handling, idempotent replay via
 client-generated UIDs — same recipe as health ADR-0005; recurrence roll-forward on the
-server). The UI is deliberately dumb.
+server). The UI is deliberately dumb. The engine speaks DAV directly over httpx (rather
+than python-caldav) so the entire suite runs offline against a mocked transport.
