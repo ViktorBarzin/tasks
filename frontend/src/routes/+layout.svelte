@@ -16,6 +16,7 @@
 	import Onboarding from '$lib/components/Onboarding.svelte';
 	import * as db from '$lib/db';
 	import { loadReplica, replica } from '$lib/replica';
+	import { scheduleSwUpdates } from '$lib/pwa';
 	import { needsReconnect, startSync, syncNow } from '$lib/sync';
 
 	let { children }: { children: Snippet } = $props();
@@ -32,9 +33,15 @@
 	onMount(async () => {
 		if ('serviceWorker' in navigator) {
 			// vite-plugin-pwa autoUpdate: the generated SW swaps itself in when a
-			// new deploy lands.
+			// new deploy lands. Poll for new deploys hourly + on foreground so an
+			// installed PWA doesn't pin a stale bundle (§K).
 			const { registerSW } = await import('virtual:pwa-register');
-			registerSW({ immediate: true });
+			registerSW({
+				immediate: true,
+				onRegisteredSW(_swUrl, registration) {
+					if (registration) scheduleSwUpdates(registration);
+				}
+			});
 		}
 
 		await loadReplica();
