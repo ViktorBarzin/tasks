@@ -20,9 +20,9 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "connected_accounts",
-        sa.Column("username", sa.String(length=255), primary_key=True),
+        sa.Column("authentik_username", sa.String(length=255), primary_key=True),
         sa.Column("nc_username", sa.String(length=255), nullable=False),
-        sa.Column("app_password_ciphertext", sa.LargeBinary(), nullable=False),
+        sa.Column("enc_app_password", sa.LargeBinary(), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

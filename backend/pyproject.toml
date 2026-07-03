@@ -9,7 +9,6 @@ packages = [{ include = "tasks_api" }]
 python = "^3.12"
 fastapi = "^0.115"
 uvicorn = "^0.32"
-caldav = "^1.4"
 icalendar = "^6.1"
 python-dateutil = "^2.9"
 sqlalchemy = { extras = ["asyncio"], version = "^2.0" }
@@ -19,12 +18,15 @@ alembic = "^1.14"
 cryptography = "^44.0"
 httpx = "^0.28"
 prometheus-fastapi-instrumentator = "^7.0"
+anyio = "^4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
 pytest-asyncio = "^0.24"
 mypy = "^1.13"
 ruff = "^0.8"
+hypothesis = "^6"
+types-python-dateutil = "^2.9.0.20260518"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
