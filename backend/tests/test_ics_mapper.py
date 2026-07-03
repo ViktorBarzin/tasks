@@ -281,6 +281,23 @@ def test_complete_honors_client_completed_at() -> None:
     assert b"COMPLETED:20260702T083000Z" in unfold_lines(done)
 
 
+def test_complete_recurring_rolls_from_completed_at_not_replay_now() -> None:
+    # A long-overdue recurring completion replayed a week later must roll to the
+    # occurrence after the COMPLETION instant, not after replay-time now (C).
+    ics = (
+        b"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\n"
+        b"BEGIN:VTODO\r\nUID:c-1\r\nSUMMARY:daily\r\n"
+        b"DUE:20260601T054500Z\r\nRRULE:FREQ=DAILY\r\nSTATUS:NEEDS-ACTION\r\n"
+        b"END:VTODO\r\nEND:VCALENDAR\r\n"
+    )
+    completed_at = datetime(2026, 7, 3, 8, 0, tzinfo=UTC)
+    replay_now = datetime(2026, 7, 10, 0, 0, tzinfo=UTC)  # a week after completion
+    rolled = ics_mapper.apply_complete(ics, replay_now, completed_at=completed_at)
+    lines = unfold_lines(rolled)
+    assert b"DUE:20260704T054500Z" in lines  # next after 07-03 08:00, NOT after 07-10
+    assert b"STATUS:NEEDS-ACTION" in lines
+
+
 def test_complete_recurring_rolls_forward_and_preserves_alarm() -> None:
     original = load_golden("apple_daily_count.ics")  # DUE 2026-07-01T05:45Z, COUNT=10
     rolled = ics_mapper.apply_complete(original, NOW)  # NOW = 2026-07-03 12:00Z

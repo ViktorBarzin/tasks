@@ -10,9 +10,12 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tasks_api.app import create_app
+from tasks_api.routers import ops as ops_module
 from tests.conftest import NC_PASS, NC_USER, auth, load_golden
 from tests.fake_caldav import FakeNextcloud
 from tests.test_sync import NC_SIMPLE_UID, sync, task_by_uid
@@ -250,6 +253,69 @@ def test_complete_replay_does_not_double_roll(
 
     assert post_ops(onboarded_client, complete)[0]["status"] == "duplicate"
     assert task_by_uid(sync(onboarded_client), INFINITE_DAILY_UID)["due"] == due_after_first
+
+
+def test_complete_recurring_occurrence_due_match_rolls_from_completed_at(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    fake_nc.put_ics(NC_USER, "personal", f"{INFINITE_DAILY_UID}.ics", INFINITE_DAILY)
+    results = post_ops(
+        onboarded_client,
+        op(
+            "task_complete",
+            "d1",
+            uid=INFINITE_DAILY_UID,
+            completed_at="2026-07-01T06:00:00+00:00",
+            occurrence_due="2026-07-01T05:45:00+00:00",  # == the object's current DUE
+        ),
+    )
+    assert results[0]["status"] == "applied"
+    task = task_by_uid(sync(onboarded_client), INFINITE_DAILY_UID)
+    assert task["completed"] is False  # rolled, not closed
+    # Next occurrence after the completion instant (06:00), not replay-now.
+    assert task["due"] == "2026-07-02T05:45:00+00:00"
+
+
+def test_complete_recurring_occurrence_due_mismatch_is_duplicate(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # The object already advanced past the occurrence the client saw (completed
+    # elsewhere) — a stale occurrence_due must NOT trigger a second roll (C).
+    fake_nc.put_ics(NC_USER, "personal", f"{INFINITE_DAILY_UID}.ics", INFINITE_DAILY)
+    results = post_ops(
+        onboarded_client,
+        op(
+            "task_complete",
+            "d1",
+            uid=INFINITE_DAILY_UID,
+            completed_at="2026-07-01T06:00:00+00:00",
+            occurrence_due="2026-06-30T05:45:00+00:00",  # != current DUE (2026-07-01)
+        ),
+    )
+    assert results[0]["status"] == "duplicate"
+    # DUE untouched — no second roll.
+    assert task_by_uid(sync(onboarded_client), INFINITE_DAILY_UID)["due"] == (
+        "2026-07-01T05:45:00+00:00"
+    )
+
+
+def test_complete_journal_race_is_duplicate_not_a_crash(
+    onboarded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Crash-safety (C): if the pre-SELECT misses a row another request already
+    # journaled (the check-then-act window), the atomic insert hits the unique
+    # op_id, raises IntegrityError, and must resolve to duplicate — never a 500.
+    complete = op("task_complete", "d1", uid=NC_SIMPLE_UID)
+    assert post_ops(onboarded_client, complete)[0]["status"] == "applied"  # row now exists
+
+    async def blind_precheck(
+        session: AsyncSession, username: str, op_ids: list[str]
+    ) -> set[str]:
+        return set()  # pretend the pre-check saw nothing
+
+    monkeypatch.setattr(ops_module, "_journaled_op_ids", blind_precheck)
+    results = post_ops(onboarded_client, complete)
+    assert results[0]["status"] == "duplicate"
 
 
 def test_complete_invalid_completed_at_errors(onboarded_client: TestClient) -> None:

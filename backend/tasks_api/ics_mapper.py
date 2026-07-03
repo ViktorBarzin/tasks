@@ -254,11 +254,15 @@ def apply_complete(ics: bytes, now: datetime, completed_at: datetime | None = No
 
     A live RRULE with a next occurrence advances DUE/DTSTART and leaves the
     task open (CONTEXT.md: "Completion means roll-forward, not closure");
-    an exhausted rule (COUNT/UNTIL spent) completes normally.
+    an exhausted rule (COUNT/UNTIL spent) completes normally. The roll-forward
+    base is the client's ``completed_at`` (the instant the user actually
+    completed it), NOT replay-time ``now`` — so a delayed replay still lands on
+    the occurrence after the completion, never skipping ahead (contract C).
     """
     cal, todo = _parse_calendar(ics)
-    if not recurrence.roll_forward(todo, now):
-        stamp = (completed_at or now).astimezone(UTC)
+    completion_instant = completed_at or now
+    if not recurrence.roll_forward(todo, completion_instant):
+        stamp = completion_instant.astimezone(UTC)
         _set_prop(todo, "STATUS", "COMPLETED")
         _set_prop(todo, "COMPLETED", stamp)
         _set_prop(todo, "PERCENT-COMPLETE", 100)
