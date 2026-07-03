@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
+from tasks_api.caldav_engine import CalDAVUnauthorized
+
 logger = logging.getLogger(__name__)
 
 # Fallback codes for bare HTTPExceptions raised without an ApiError.
@@ -58,6 +60,22 @@ def install_error_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         return error_response(422, "validation_error", str(exc.errors()))
+
+    @app.exception_handler(CalDAVUnauthorized)
+    async def handle_caldav_unauthorized(
+        request: Request, exc: CalDAVUnauthorized
+    ) -> JSONResponse:
+        # Nextcloud revoked/rotated the stored app password (ADR-0002): the
+        # client's cue to show the "reconnect your account" banner.
+        logger.info(
+            "stored Nextcloud credential rejected",
+            extra={"path": request.url.path, "error": str(exc)},
+        )
+        return error_response(
+            401,
+            "nextcloud_unauthorized",
+            "Nextcloud rejected the stored app password; reconnect your account",
+        )
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
