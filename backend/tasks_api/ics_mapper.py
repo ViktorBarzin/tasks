@@ -131,6 +131,15 @@ def parse_task(ics: bytes) -> ParsedTask | None:
     )
 
 
+def _due_string_has_time(due: str) -> bool:
+    """Whether an ISO due string carries a time-of-day (``T``/space separator).
+
+    A bare ISO date (``YYYY-MM-DD``) does not; a date-time does. Used to
+    normalize a datetime ``due`` that arrived without ``due_has_time`` set.
+    """
+    return "T" in due or " " in due
+
+
 def _parse_due_value(due: str, due_has_time: bool) -> date | datetime:
     """An Op's ISO due string → the ICS value (dates stay dates; aware → UTC)."""
     try:
@@ -186,7 +195,20 @@ def _apply_fields_to_todo(todo: Todo, fields: dict[str, object]) -> None:
         if due is not None and not isinstance(due, str):
             raise MapperError(f"invalid due value {due!r}: expected ISO string or null")
         has_time = bool(fields.get("due_has_time", False))
-        _apply_due(todo, due, has_time)
+        # Guard inconsistent due fields (SYNC-12 / contract L): due and
+        # due_has_time travel together. Reject a flag with no value (was:
+        # silently clearing DUE); normalize a date-time value that arrived
+        # without the flag (was: a confusing "invalid date" error).
+        if due is None:
+            if "due" not in fields:
+                raise MapperError("due_has_time was sent without a due value; send both together")
+            if has_time:
+                raise MapperError("cannot clear due while due_has_time is true")
+            _apply_due(todo, None, False)
+        else:
+            if not has_time and _due_string_has_time(due):
+                has_time = True
+            _apply_due(todo, due, has_time)
     if "priority" in fields:
         priority = fields["priority"]
         if (

@@ -183,6 +183,43 @@ def test_naive_due_stays_floating() -> None:
     assert b"DUE:20260709T180000" in unfold_lines(modified)
 
 
+# -- inconsistent due fields (SYNC-12 / contract L) --------------------------
+
+
+def test_due_has_time_without_due_is_rejected_not_silently_cleared() -> None:
+    # due_has_time:true with no due value used to silently WIPE DUE. Guard it.
+    original = load_golden("apple_daily_count.ics")  # has DUE:20260701T054500Z
+    with pytest.raises(MapperError):
+        ics_mapper.apply_fields(original, {"due_has_time": True}, NOW)
+
+
+def test_lone_due_has_time_flag_does_not_touch_due() -> None:
+    # A stray due_has_time (either truthiness) without a due value is a client
+    # bug; the guard refuses rather than clobbering the stored DUE.
+    original = load_golden("apple_daily_count.ics")
+    with pytest.raises(MapperError):
+        ics_mapper.apply_fields(original, {"due_has_time": False}, NOW)
+
+
+def test_datetime_due_without_flag_is_normalized_to_timed() -> None:
+    # A date-time-shaped due with no due_has_time used to raise a confusing
+    # "invalid date" error; normalize the flag from the value shape instead.
+    original = load_golden("nextcloud_simple.ics")
+    modified = ics_mapper.apply_fields(original, {"due": "2026-07-09T18:00:00"}, NOW)
+    assert b"DUE:20260709T180000" in unfold_lines(modified)
+    parsed = ics_mapper.parse_task(modified)
+    assert parsed is not None
+    assert parsed.due == "2026-07-09T18:00:00"
+    assert parsed.due_has_time is True
+
+
+def test_date_due_without_flag_stays_all_day() -> None:
+    # The consistent all-day path (bare date, no flag) must keep working.
+    original = load_golden("nextcloud_simple.ics")
+    modified = ics_mapper.apply_fields(original, {"due": "2026-07-20"}, NOW)
+    assert b"DUE;VALUE=DATE:20260720" in unfold_lines(modified)
+
+
 def test_notes_set_and_clear() -> None:
     original = load_golden("nextcloud_simple.ics")
     with_notes = ics_mapper.apply_fields(original, {"notes": "line1\nline2, ok"}, NOW)
