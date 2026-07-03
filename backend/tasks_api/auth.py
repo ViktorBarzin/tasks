@@ -9,9 +9,10 @@ dev/test fallback (never set in production).
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 from tasks_api.config import USERNAME_HEADER, get_settings
+from tasks_api.errors import error_response
 
 
 class AuthentikUserMiddleware(BaseHTTPMiddleware):
@@ -24,9 +25,8 @@ class AuthentikUserMiddleware(BaseHTTPMiddleware):
         if path == "/api" or path.startswith("/api/"):
             username = request.headers.get(USERNAME_HEADER) or get_settings().dev_user
             if not username:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": f"missing {USERNAME_HEADER} header"},
+                return error_response(
+                    401, "unauthorized", f"missing {USERNAME_HEADER} header"
                 )
             request.state.username = username
         return await call_next(request)

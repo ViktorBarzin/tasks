@@ -8,9 +8,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from tasks_api import models  # noqa: F401  (import registers tables on Base.metadata)
+from tasks_api import models
 from tasks_api.config import get_settings
-from tasks_api.db import Base
 
 config = context.config
 
@@ -19,7 +18,9 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", get_settings().db_dsn)
 
-target_metadata = Base.metadata
+# Through the models module so importing it (which registers every table on
+# the declarative Base) can never be optimized away as unused.
+target_metadata = models.Base.metadata
 
 
 def run_migrations_offline() -> None:

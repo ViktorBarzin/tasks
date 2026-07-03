@@ -1,7 +1,11 @@
 """App factory: API + metrics + (when built) the SvelteKit SPA — one container."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+import anyio
+import httpx
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -9,8 +13,10 @@ from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from tasks_api import __version__
+from tasks_api import __version__, db, migrations
 from tasks_api.auth import AuthentikUserMiddleware
+from tasks_api.errors import install_error_handlers
+from tasks_api.logging_setup import configure_logging
 from tasks_api.routers import api_router
 
 # backend/tasks_api/app.py → repo root → frontend/build (adapter-static output).
@@ -30,10 +36,34 @@ class SPAStaticFiles(StaticFiles):
             raise
 
 
-def create_app() -> FastAPI:
-    """Build the FastAPI app: /healthz, /metrics, /api/*, and the SPA at /."""
-    app = FastAPI(title="tasks", version=__version__)
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Migrate the DB to head, then open the engine for the app's lifetime.
+
+    Alembic drives its own (async) engine via ``asyncio.run`` inside
+    ``alembic/env.py``, so it runs on a worker thread here.
+    """
+    await anyio.to_thread.run_sync(migrations.upgrade_to_head)
+    engine = db.create_engine()
+    app.state.db_engine = engine
+    app.state.session_factory = db.create_session_factory(engine)
+    try:
+        yield
+    finally:
+        await engine.dispose()
+
+
+def create_app(caldav_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+    """Build the FastAPI app: /healthz, /metrics, /api/*, and the SPA at /.
+
+    ``caldav_transport`` lets tests swap Nextcloud for an
+    ``httpx.MockTransport``; production passes nothing (real network).
+    """
+    configure_logging()
+    app = FastAPI(title="tasks", version=__version__, lifespan=_lifespan)
+    app.state.caldav_transport = caldav_transport
     app.add_middleware(AuthentikUserMiddleware)
+    install_error_handlers(app)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:
