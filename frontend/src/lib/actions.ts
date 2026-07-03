@@ -78,8 +78,17 @@ export async function uncompleteTask(uid: string): Promise<void> {
 	kick();
 }
 
-export async function moveTask(uid: string, listId: string): Promise<void> {
-	await recordOp({ op_id: uuid(), kind: 'task_move', uid, list_id: listId });
+/** Move a Task from `fromListId` (source) to `toListId` (destination). The Op
+ * carries both so the server can locate the object in its origin List first
+ * (contract-delta §A). */
+export async function moveTask(uid: string, toListId: string, fromListId: string): Promise<void> {
+	await recordOp({
+		op_id: uuid(),
+		kind: 'task_move',
+		uid,
+		list_id: fromListId,
+		to_list_id: toListId
+	});
 	kick();
 }
 

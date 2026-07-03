@@ -19,7 +19,7 @@ import {
 import * as db from './db';
 import { _resetReplicaForTests, replica } from './replica';
 import { _resetSyncForTests } from './sync';
-import type { TaskCreateOp } from './types';
+import type { TaskCreateOp, TaskMoveOp } from './types';
 
 beforeEach(() => {
 	globalThis.indexedDB = new IDBFactory();
@@ -67,7 +67,7 @@ describe('actions', () => {
 		const uid = await createTask(a, { title: 'x' });
 
 		await updateTask(uid, { title: 'renamed', due: '2026-07-09', due_has_time: false });
-		await moveTask(uid, b);
+		await moveTask(uid, b, a);
 		expect(get(replica).tasks.get(uid)).toMatchObject({ title: 'renamed', list_id: b });
 
 		await deleteTask(uid);
@@ -82,6 +82,19 @@ describe('actions', () => {
 			'task_move',
 			'task_delete'
 		]);
+	});
+
+	it('moveTask records both the source and destination List (contract §A)', async () => {
+		const a = await createList('A');
+		const b = await createList('B');
+		const uid = await createTask(a, { title: 'x' });
+
+		await moveTask(uid, b, a);
+
+		const moveOp = (await db.peekOps(20)).find((q) => q.op.kind === 'task_move')!.op as TaskMoveOp;
+		expect(moveOp.list_id).toBe(a); // source
+		expect(moveOp.to_list_id).toBe(b); // destination
+		expect(get(replica).tasks.get(uid)?.list_id).toBe(b);
 	});
 
 	it('renameList and deleteList cascade locally', async () => {

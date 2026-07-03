@@ -95,11 +95,18 @@ export interface TaskUncompleteOp extends OpBase {
 	uid: string;
 }
 
-/** list_id is the destination List. */
+/**
+ * A Task move between Lists. Carries BOTH endpoints (contract-delta §A):
+ * `list_id` is the SOURCE List (a hint so the server locates the object in its
+ * origin first — a half-done move that left a target copy can't shadow it),
+ * `to_list_id` is the DESTINATION. Both are required; keep in lockstep with
+ * backend schemas.py.
+ */
 export interface TaskMoveOp extends OpBase {
 	kind: 'task_move';
 	uid: string;
 	list_id: string;
+	to_list_id: string;
 }
 
 export interface TaskDeleteOp extends OpBase {
