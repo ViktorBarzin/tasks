@@ -6,11 +6,14 @@ refetch + re-apply ⇒ ``lww_reapplied``), and per-Op isolation (one bad Op
 errors, the rest of the batch still applies, results stay ordered).
 """
 
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
+import httpx
 from fastapi.testclient import TestClient
 
-from tests.conftest import NC_USER, auth, load_golden
+from tasks_api.app import create_app
+from tests.conftest import NC_PASS, NC_USER, auth, load_golden
 from tests.fake_caldav import FakeNextcloud
 from tests.test_sync import NC_SIMPLE_UID, sync, task_by_uid
 
@@ -435,14 +438,25 @@ def test_empty_batch(onboarded_client: TestClient) -> None:
     assert post_ops(onboarded_client) == []
 
 
-def test_unknown_kind_is_a_422(onboarded_client: TestClient) -> None:
+def test_unknown_kind_is_a_per_op_error_not_a_batch_422(onboarded_client: TestClient) -> None:
+    # Contract B: one unsupported/malformed op must NOT hard-422 the whole
+    # batch — it becomes a per-op ``error`` and the valid ops still apply.
     response = onboarded_client.post(
         "/api/ops",
-        json={"ops": [{"op_id": "z1", "kind": "task_explode", "uid": "u"}]},
+        json={
+            "ops": [
+                {"op_id": "z1", "kind": "task_explode", "uid": "u"},
+                op("task_create", "z2", uid="keep-1", list_id="work", title="kept"),
+            ]
+        },
         headers=auth(),
     )
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "validation_error"
+    assert response.status_code == 200, response.text
+    results = response.json()["results"]
+    assert results[0] == {"op_id": "z1", "status": "error", "error": results[0]["error"]}
+    assert results[0]["error"] and "task_explode" in results[0]["error"]
+    assert results[1]["status"] == "applied"
+    assert task_by_uid(sync(onboarded_client), "keep-1")["title"] == "kept"
 
 
 def test_full_replay_of_mixed_batch_is_all_duplicates(onboarded_client: TestClient) -> None:
@@ -458,3 +472,99 @@ def test_full_replay_of_mixed_batch_is_all_duplicates(onboarded_client: TestClie
     # Effects happened exactly once.
     task = task_by_uid(sync(onboarded_client), "g-1")
     assert task["completed"] is True
+
+
+# -- retry vs error taxonomy + ordering (contract B / SYNC-3, PWA-F2) ------------
+
+
+def _client_through(
+    app_env: str, handler: Callable[[httpx.Request], httpx.Response]
+) -> Iterator[TestClient]:
+    app = create_app(caldav_transport=httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        onboard = client.post(
+            "/api/onboard",
+            json={"nc_username": NC_USER, "app_password": NC_PASS},
+            headers=auth(),
+        )
+        assert onboard.status_code == 204, onboard.text
+        yield client
+
+
+def _raw_ops(client: TestClient, *ops: dict) -> httpx.Response:
+    return client.post("/api/ops", json={"ops": list(ops)}, headers=auth())
+
+
+def test_transient_5xx_stops_batch_at_retry_and_omits_remainder(
+    app_env: str, fake_nc: FakeNextcloud
+) -> None:
+    def flaky(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT" and "/personal/" in request.url.path:
+            return httpx.Response(503)  # Nextcloud transient
+        return fake_nc.handler(request)
+
+    client = next(_client_through(app_env, flaky))
+    response = _raw_ops(
+        client,
+        op("task_create", "b1", uid="ok-before", list_id="work", title="before"),
+        op("task_create", "b2", uid="stuck", list_id="personal", title="stuck"),
+        op("task_create", "b3", uid="never-tried", list_id="work", title="after"),
+    )
+    assert response.status_code == 200, response.text
+    results = response.json()["results"]
+    # Processed prefix + the stopper as retry; the unattempted remainder omitted.
+    assert [(r["op_id"], r["status"]) for r in results] == [("b1", "applied"), ("b2", "retry")]
+    # b1 landed; b2 (transient) and b3 (never attempted) did not.
+    assert "ok-before.ics" in fake_nc.calendars[NC_USER]["work"].objects
+    assert "never-tried.ics" not in fake_nc.calendars[NC_USER]["work"].objects
+
+
+def test_retry_is_not_journaled_so_a_resend_still_applies(
+    app_env: str, fake_nc: FakeNextcloud
+) -> None:
+    failures = {"n": 1}
+
+    def flaky_once(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT" and "/personal/" in request.url.path and failures["n"]:
+            failures["n"] -= 1
+            return httpx.Response(502)
+        return fake_nc.handler(request)
+
+    client = next(_client_through(app_env, flaky_once))
+    first = _raw_ops(client, op("task_create", "r1", uid="retry-me", list_id="personal", title="x"))
+    assert [r["status"] for r in first.json()["results"]] == ["retry"]
+    # Same op_id resent next cycle: the transient failure cleared, so it applies
+    # (a retry never poisons the journal).
+    second = _raw_ops(client, op("task_create", "r1", uid="retry-me", list_id="personal", title="x"))
+    assert [r["status"] for r in second.json()["results"]] == ["applied"]
+
+
+def test_upstream_timeout_maps_to_retry(app_env: str, fake_nc: FakeNextcloud) -> None:
+    def timing_out(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT" and "/personal/" in request.url.path:
+            raise httpx.ConnectTimeout("simulated upstream timeout")
+        return fake_nc.handler(request)
+
+    client = next(_client_through(app_env, timing_out))
+    response = _raw_ops(client, op("task_create", "t1", uid="timed", list_id="personal", title="x"))
+    assert [r["status"] for r in response.json()["results"]] == ["retry"]
+
+
+def test_permanent_4xx_is_isolated_as_error_batch_continues(
+    app_env: str, fake_nc: FakeNextcloud
+) -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT" and "/personal/" in request.url.path:
+            return httpx.Response(403)  # permanent — never succeeds as-is
+        return fake_nc.handler(request)
+
+    client = next(_client_through(app_env, forbidden))
+    response = _raw_ops(
+        client,
+        op("task_create", "e1", uid="doomed", list_id="personal", title="no"),
+        op("task_create", "e2", uid="fine", list_id="work", title="yes"),
+    )
+    results = response.json()["results"]
+    # 4xx → error (isolated, skip), NOT retry — so the batch keeps going.
+    assert [(r["op_id"], r["status"]) for r in results] == [("e1", "error"), ("e2", "applied")]
+    assert "fine.ics" in fake_nc.calendars[NC_USER]["work"].objects

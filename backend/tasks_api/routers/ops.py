@@ -29,7 +29,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Final, Literal, get_args
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -43,6 +43,7 @@ from tasks_api.caldav_engine import (
     CalDAVError,
     CalDAVNotFound,
     CalDAVPreconditionFailed,
+    CalDAVTransient,
     CalDAVUnauthorized,
     ListInfo,
     ObjectState,
@@ -51,7 +52,7 @@ from tasks_api.deps import engine_for_account, get_session
 from tasks_api.ics_mapper import MapperError
 from tasks_api.models import AppliedOp
 from tasks_api.recurrence import RecurrenceError
-from tasks_api.schemas import Op, OpResult, OpsRequest, OpsResponse
+from tasks_api.schemas import Op, OpKind, OpResult, OpsRequest, OpsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,8 @@ router = APIRouter()
 
 _MAX_ETAG_RETRIES = 3
 _LIST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+#: The kinds the batch will attempt; anything else is a per-op ``error`` (B).
+_VALID_KINDS: Final[frozenset[str]] = frozenset(get_args(OpKind))
 
 ApplyStatus = Literal["applied", "lww_reapplied", "duplicate"]
 
@@ -358,13 +361,30 @@ async def apply_ops(
         if op.op_id in journaled:
             results.append(OpResult(op_id=op.op_id, status="duplicate", error=None))
             continue
+        if op.kind not in _VALID_KINDS:
+            # Unknown/unsupported kind is a permanent, isolated per-op error —
+            # never a whole-batch 422 (contract B).
+            results.append(
+                OpResult(op_id=op.op_id, status="error", error=f"unknown op kind {op.kind!r}")
+            )
+            continue
         try:
             status = await _apply_op(engine, lists, op, now)
+        except CalDAVUnauthorized:
+            raise  # whole batch aborts → 401 envelope → client re-onboards
+        except CalDAVTransient as exc:
+            # Transient upstream (Nextcloud 5xx / timeout): the op did NOT apply.
+            # STOP the batch here — this op and every op after it stay queued in
+            # order (omitted from results) for the next drain (contract B).
+            logger.info(
+                "op deferred, transient upstream failure — batch stopped",
+                extra={"user": username, "op_id": op.op_id, "kind": op.kind, "error": str(exc)},
+            )
+            results.append(OpResult(op_id=op.op_id, status="retry", error=str(exc)))
+            break
         except (OpError, MapperError, RecurrenceError) as exc:
             results.append(OpResult(op_id=op.op_id, status="error", error=str(exc)))
             continue
-        except CalDAVUnauthorized:
-            raise  # whole batch aborts → 401 envelope → client re-onboards
         except CalDAVError as exc:
             logger.warning(
                 "op failed against Nextcloud",
