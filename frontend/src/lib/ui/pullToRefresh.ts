@@ -9,6 +9,8 @@
  */
 export interface PullToRefreshOptions {
 	onrefresh: () => Promise<unknown>;
+	/** Gate for modes that own the touch stream themselves (Edit-mode drag). */
+	enabled?: boolean;
 }
 
 const THRESHOLD_PX = 70;
@@ -26,12 +28,20 @@ export function pullToRefresh(node: HTMLElement, options: PullToRefreshOptions) 
 	}
 
 	function onStart(e: TouchEvent): void {
-		if (refreshing || node.scrollTop > 0 || e.touches.length !== 1) return;
+		if (opts.enabled === false || refreshing || node.scrollTop > 0 || e.touches.length !== 1)
+			return;
 		startY = e.touches[0]?.clientY ?? 0;
 		pulling = true;
 	}
 
 	function onMove(e: TouchEvent): void {
+		if (opts.enabled === false && pulling) {
+			// Disabled mid-pull (Edit toggled under the finger): drop the gesture.
+			pulling = false;
+			node.classList.remove('ptr-pulling');
+			setOffset(0);
+			return;
+		}
 		if (!pulling || refreshing) return;
 		const dy = (e.touches[0]?.clientY ?? 0) - startY;
 		if (dy <= 0 || node.scrollTop > 0) {

@@ -16,11 +16,13 @@
 		title: string;
 		tint?: string;
 		back?: { href: string; label: string };
+		/** Switch pull-to-refresh off while a mode owns the touch stream (Edit-mode drag). */
+		refreshDisabled?: boolean;
 		right?: Snippet;
 		bottom?: Snippet;
 		children: Snippet;
 	}
-	let { title, tint, back, right, bottom, children }: Props = $props();
+	let { title, tint, back, refreshDisabled = false, right, bottom, children }: Props = $props();
 </script>
 
 <div class="screen">
@@ -39,7 +41,7 @@
 		</div>
 	</header>
 
-	<div class="scroller" use:pullToRefresh={{ onrefresh: () => syncNow() }}>
+	<div class="scroller" use:pullToRefresh={{ onrefresh: () => syncNow(), enabled: !refreshDisabled }}>
 		<div class="ptr" aria-hidden="true"><span class="ptr-spinner"></span></div>
 		<h1 class="large-title" style:color={tint ?? 'inherit'}>{title}</h1>
 		{@render children()}
