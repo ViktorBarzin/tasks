@@ -451,6 +451,21 @@ class CalDAVEngine:
         states = self._parse_object_states(self._multistatus(response))
         return states[0] if states else None
 
+    async def _current_etag(self, href: str) -> str | None:
+        """The object's ETag right now, or ``None`` when it does not exist.
+
+        Probe for the broken-edge fallbacks below — a plain GET carries no
+        conditional headers, so it always reaches the origin.
+        """
+        response = await self._request("GET", href)
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise CalDAVError(f"GET {href!r} failed: HTTP {response.status_code}")
+        return response.headers.get("ETag", "")
+
+    _ICS_HEADERS = {"Content-Type": "text/calendar; charset=utf-8"}
+
     async def put_object(
         self,
         href: str,
@@ -459,12 +474,37 @@ class CalDAVEngine:
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> None:
-        headers = {"Content-Type": "text/calendar; charset=utf-8"}
+        headers = dict(self._ICS_HEADERS)
         if if_match:
             headers["If-Match"] = if_match
         if if_none_match:
             headers["If-None-Match"] = "*"
         response = await self._request("PUT", href, headers=headers, content=ics)
+        if response.status_code == 304 and if_none_match:
+            # RFC 9110 §15.4.5 reserves 304 for GET/HEAD — a compliant origin
+            # can never answer a PUT with it. Our ingress (openresty) does:
+            # it terminates `If-None-Match: *` writes at the edge and never
+            # forwards them upstream. Degrade: re-check existence with a plain
+            # GET, then retry unguarded (the op journal still absorbs replays).
+            if await self._current_etag(href) is not None:
+                raise CalDAVPreconditionFailed(f"PUT {href!r}: object already exists")
+            response = await self._request(
+                "PUT", href, headers=dict(self._ICS_HEADERS), content=ics
+            )
+        elif response.status_code == 412 and if_match:
+            # The same edge answers every `If-Match` PUT with a blanket 412.
+            # A 412 is also a legitimate origin answer, so verify: re-read the
+            # ETag and retry unguarded only when the precondition provably
+            # still holds; a differing tag is a genuine conflict and stays a
+            # 412 for the Silent-LWW loop in the ops router.
+            current = await self._current_etag(href)
+            if current is None:
+                raise CalDAVNotFound(f"object {href!r} not found")
+            if current != if_match:
+                raise CalDAVPreconditionFailed(f"PUT {href!r}: precondition failed")
+            response = await self._request(
+                "PUT", href, headers=dict(self._ICS_HEADERS), content=ics
+            )
         if response.status_code == 412:
             raise CalDAVPreconditionFailed(f"PUT {href!r}: precondition failed")
         if response.status_code == 404:
@@ -477,6 +517,14 @@ class CalDAVEngine:
         if if_match:
             headers["If-Match"] = if_match
         response = await self._request("DELETE", href, headers=headers)
+        if response.status_code == 412 and if_match:
+            # Broken-edge fallback, same reasoning as in put_object.
+            current = await self._current_etag(href)
+            if current is None:
+                raise CalDAVNotFound(f"object {href!r} not found")
+            if current != if_match:
+                raise CalDAVPreconditionFailed(f"DELETE {href!r}: precondition failed")
+            response = await self._request("DELETE", href)
         if response.status_code == 412:
             raise CalDAVPreconditionFailed(f"DELETE {href!r}: precondition failed")
         if response.status_code == 404:
