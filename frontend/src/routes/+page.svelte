@@ -1,19 +1,20 @@
 <script lang="ts">
 	/** Home: search, Smart View tiles (Today / Scheduled / All with counts),
-	 * My Lists with open counts, New Task + Add List in the bottom bar. */
+	 * My Lists with open counts (Edit → drag handles reorder them, server-backed
+	 * via list_reorder ops), New Task + Add List in the bottom bar. */
 	import { goto } from '$app/navigation';
 
-	import { createList, recentlyCompleted } from '$lib/actions';
+	import { createList, recentlyCompleted, reorderLists } from '$lib/actions';
 	import Dialog from '$lib/components/Dialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Screen from '$lib/components/Screen.svelte';
 	import TaskRow from '$lib/components/TaskRow.svelte';
 	import TaskSheet from '$lib/components/TaskSheet.svelte';
 	import { replica, replicaLoaded } from '$lib/replica';
-	import type { Task } from '$lib/types';
+	import type { Task, TaskList } from '$lib/types';
 	import { now } from '$lib/ui/clock';
 	import { listColor } from '$lib/ui/listColors';
-	import { searchTasks, sortedLists, viewCounts } from '$lib/views';
+	import { planListReorder, searchTasks, sortedLists, viewCounts } from '$lib/views';
 
 	let query = $state('');
 	let addListOpen = $state(false);
@@ -23,6 +24,93 @@
 	let lists = $derived(sortedLists($replica));
 	let counts = $derived(viewCounts($replica, $now));
 	let hits = $derived(searchTasks($replica, query));
+
+	// --- Edit mode: reorder Lists with drag handles (contract v1.2 §2). While a
+	// drag is live the rows keep their DOM order and move via transforms; the
+	// drop commits one list_reorder op per changed List and `pendingOrder`
+	// bridges the ms until the optimistic fold re-sorts the store.
+	let editMode = $state(false);
+
+	interface DragState {
+		id: string;
+		from: number;
+		to: number;
+		startY: number;
+		dy: number;
+		rowH: number;
+		pointerId: number;
+	}
+	let drag = $state<DragState | null>(null);
+	let pendingOrder = $state<string[] | null>(null);
+
+	let displayLists = $derived.by((): TaskList[] => {
+		if (!pendingOrder) return lists;
+		const byId = new Map(lists.map((l) => [l.id, l]));
+		return pendingOrder.map((id) => byId.get(id)).filter((l): l is TaskList => l !== undefined);
+	});
+
+	function clamp(v: number, lo: number, hi: number): number {
+		return Math.max(lo, Math.min(hi, v));
+	}
+
+	function toggleEdit(): void {
+		editMode = !editMode;
+		drag = null;
+	}
+
+	function dragStart(e: PointerEvent, id: string): void {
+		const from = displayLists.findIndex((l) => l.id === id);
+		if (from < 0) return;
+		const handle = e.currentTarget as HTMLElement;
+		const rowH = (handle.closest('.list-row') as HTMLElement | null)?.offsetHeight || 52;
+		handle.setPointerCapture(e.pointerId);
+		drag = { id, from, to: from, startY: e.clientY, dy: 0, rowH, pointerId: e.pointerId };
+	}
+
+	function dragMove(e: PointerEvent): void {
+		if (!drag || e.pointerId !== drag.pointerId) return;
+		// Keep the row inside the card (.card clips overflow).
+		const dy = clamp(
+			e.clientY - drag.startY,
+			-drag.from * drag.rowH,
+			(displayLists.length - 1 - drag.from) * drag.rowH
+		);
+		const to = clamp(drag.from + Math.round(dy / drag.rowH), 0, displayLists.length - 1);
+		drag = { ...drag, dy, to };
+	}
+
+	async function dragEnd(e: PointerEvent): Promise<void> {
+		if (!drag || e.pointerId !== drag.pointerId) return;
+		const d = drag;
+		drag = null;
+		const ids = displayLists.map((l) => l.id);
+		const from = ids.indexOf(d.id);
+		if (from < 0 || from === d.to) return;
+		ids.splice(from, 1);
+		ids.splice(d.to, 0, d.id);
+		pendingOrder = ids;
+		try {
+			await reorderLists(planListReorder(displayLists, ids));
+		} finally {
+			pendingOrder = null;
+		}
+	}
+
+	function dragCancel(e: PointerEvent): void {
+		if (drag && e.pointerId === drag.pointerId) drag = null;
+	}
+
+	/** Visual shift of row `index` while a drag is live (dragged row follows
+	 * the pointer, displaced neighbours step one row height aside). */
+	function rowTransform(index: number, id: string): string | undefined {
+		if (!drag) return undefined;
+		if (id === drag.id) return `translateY(${drag.dy}px)`;
+		if (drag.from < drag.to && index > drag.from && index <= drag.to)
+			return `translateY(${-drag.rowH}px)`;
+		if (drag.to < drag.from && index >= drag.to && index < drag.from)
+			return `translateY(${drag.rowH}px)`;
+		return undefined;
+	}
 
 	const ICON_TODAY = 'M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M18.4 5.6l-1.5 1.5M7.1 16.9l-1.5 1.5M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z';
 	const ICON_SCHEDULED = 'M8 3v4M16 3v4M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z';
@@ -43,6 +131,14 @@
 </script>
 
 <Screen title="Tasks">
+	{#snippet right()}
+		{#if lists.length > 1 && !query.trim()}
+			<button class="edit-btn" class:strong={editMode} onclick={toggleEdit}>
+				{editMode ? 'Done' : 'Edit'}
+			</button>
+		{/if}
+	{/snippet}
+
 	{#snippet bottom()}
 		<button class="new-task" onclick={() => (newTaskOpen = true)} disabled={lists.length === 0}>
 			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none" /><path d="M12 8.5v7M8.5 12h7" stroke="var(--bg)" /></svg>
@@ -90,16 +186,39 @@
 		</div>
 
 		<h2 class="eyebrow section-heading">My Lists</h2>
-		<div class="card hairline-rows">
-			{#each lists as l (l.id)}
-				<a class="list-row" href={`/list/${l.id}`}>
-					<span class="list-dot" style:background={listColor(l.id)}>
-						<Icon path={ICON_LIST} size={15} stroke={2} />
-					</span>
-					<span class="list-name">{l.name}</span>
-					<span class="list-count">{counts.byList.get(l.id) ?? 0}</span>
-					<svg class="chevron" width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="m1.5 1.5 5 5.5-5 5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-				</a>
+		<div class="card hairline-rows" class:reordering={editMode}>
+			{#each displayLists as l, index (l.id)}
+				{#if editMode}
+					<div
+						class="list-row"
+						class:dragging={drag?.id === l.id}
+						style:transform={rowTransform(index, l.id)}
+					>
+						<span class="list-dot" style:background={listColor(l.id)}>
+							<Icon path={ICON_LIST} size={15} stroke={2} />
+						</span>
+						<span class="list-name">{l.name}</span>
+						<button
+							class="drag-handle"
+							aria-label={`Reorder ${l.name}`}
+							onpointerdown={(e) => dragStart(e, l.id)}
+							onpointermove={dragMove}
+							onpointerup={dragEnd}
+							onpointercancel={dragCancel}
+						>
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16" /></svg>
+						</button>
+					</div>
+				{:else}
+					<a class="list-row" href={`/list/${l.id}`}>
+						<span class="list-dot" style:background={listColor(l.id)}>
+							<Icon path={ICON_LIST} size={15} stroke={2} />
+						</span>
+						<span class="list-name">{l.name}</span>
+						<span class="list-count">{counts.byList.get(l.id) ?? 0}</span>
+						<svg class="chevron" width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="m1.5 1.5 5 5.5-5 5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+					</a>
+				{/if}
 			{:else}
 				<p class="empty">
 					{#if $replicaLoaded}No Lists yet — add one below.{:else}Loading…{/if}
@@ -214,6 +333,52 @@
 	.chevron {
 		color: var(--hairline);
 		flex: none;
+	}
+
+	.edit-btn {
+		color: var(--accent);
+		font-size: 17px;
+		padding: 4px 2px;
+	}
+
+	.edit-btn.strong {
+		font-weight: 600;
+	}
+
+	/* Reorder mode: rows move via transforms; the grabbed one rides on top. */
+	.reordering {
+		user-select: none;
+		-webkit-user-select: none;
+	}
+
+	.reordering .list-row {
+		position: relative;
+		transition: transform 0.15s ease;
+	}
+
+	.reordering .list-row.dragging {
+		transition: none;
+		z-index: 2;
+		background: var(--card);
+		box-shadow: 0 3px 14px rgba(0, 0, 0, 0.18);
+	}
+
+	.drag-handle {
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		margin: -5px -8px -5px 0;
+		color: var(--muted);
+		/* The drag owns the gesture — never hand it to the scroller. */
+		touch-action: none;
+		cursor: grab;
+	}
+
+	.dragging .drag-handle {
+		cursor: grabbing;
 	}
 
 	.results {
