@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "tasks-api"
+version = "0.1.0"
+description = "FastAPI backend for the tasks PWA — JSON delta-sync proxy over Nextcloud CalDAV"
+authors = ["Viktor Barzin <viktorbarzin@meta.com>"]
+packages = [{ include = "tasks_api" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115"
+uvicorn = "^0.32"
+caldav = "^1.4"
+icalendar = "^6.1"
+python-dateutil = "^2.9"
+sqlalchemy = { extras = ["asyncio"], version = "^2.0" }
+aiosqlite = "^0.20"
+asyncpg = "^0.30"
+alembic = "^1.14"
+cryptography = "^44.0"
+httpx = "^0.28"
+prometheus-fastapi-instrumentator = "^7.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-asyncio = "^0.24"
+mypy = "^1.13"
+ruff = "^0.8"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
