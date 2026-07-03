@@ -18,4 +18,9 @@ for a household app).
 Consequence: correctness lives in the sync engine (cursor handling, idempotent replay via
 client-generated UIDs — same recipe as health ADR-0005; recurrence roll-forward on the
 server). The UI is deliberately dumb. The engine speaks DAV directly over httpx (rather
-than python-caldav) so the entire suite runs offline against a mocked transport.
+than python-caldav) so the entire suite runs offline against a mocked transport. The
+client-side offline requirement is realised by a hand-written app-shell service worker
+(injectManifest via `@vite-pwa/sveltekit`, workbox-* precaching + a navigation fallback to
+the SPA shell); the plugin's generated-SW `navigateFallback` did not cold-start offline on
+a never-visited deep link on the current version, so it was rejected in favour of the
+tripit injectManifest pattern (see the design doc's SW note).

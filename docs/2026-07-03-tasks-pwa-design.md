@@ -66,11 +66,28 @@ Onboarding flow; list sidebar (accounts fixed to self); Smart Views Today/Schedu
 per-List view; task create/edit sheet (title, notes, due date/time, priority, list);
 complete/uncomplete with recurring roll-forward; move between lists; List CRUD;
 client-side search over Replica; overdue highlighting; pull-to-refresh + background sync;
-iOS 26 PWA shell per TripIt conventions (dvh, safe-area insets, inner scroller,
-vite-pwa autoupdate).
+iOS 26 PWA shell per TripIt conventions (dvh, safe-area insets, inner scroller); offline
+app-shell service worker (see the SW note below).
 
 Out of scope v1: alerts/push, recurrence editing, subtasks, tags/flags, sharing,
 attachments, Siri.
+
+## Service worker (offline shell) — impl note, 2026-07-03
+
+Offline cold-start (contract-delta §H, the founding requirement in ADR-0001) is served by a
+**hand-written app-shell service worker** (`frontend/src/service-worker.ts`) built through
+`@vite-pwa/sveltekit` in **`injectManifest`** mode (`registerType: 'autoUpdate'`) — the
+tripit pattern (`tripit/frontend/src/service-worker.ts`). It precaches the SPA shell
+(`spa: true` + `adapterFallback: 'index.html'`) plus every content-hashed build asset and
+serves the shell for any in-scope navigation, so a never-visited deep link (`/list/<id>`)
+boots with no network; `/api`, `/healthz`, `/metrics` are denylisted so they always reach
+Traefik (the §I auth-wall re-login needs a real navigation). There is deliberately no
+runtime `/api` cache — the UI renders only from the IndexedDB Replica.
+
+We did NOT use the plugin's generated-SW (`GenerateSW`) `navigateFallback` config: on the
+current `@vite-pwa/sveltekit` + workbox it did not serve the shell for navigations, so the
+offline cold-start failed. Consequence: `workbox-core`, `workbox-precaching`,
+`workbox-routing`, `workbox-strategies` are now direct frontend dependencies.
 
 ## Interactions with existing systems
 
