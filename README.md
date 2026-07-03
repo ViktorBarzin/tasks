@@ -28,8 +28,9 @@ cd backend && poetry install
 poetry run uvicorn tasks_api.app:app --reload   # http://localhost:8000
 poetry run pytest && poetry run ruff check tasks_api tests alembic && poetry run mypy tasks_api tests
 
-# frontend
-cd frontend && npm install
+# frontend (--include=dev: NODE_ENV=production environments, e.g. the devvm,
+# otherwise skip devDependencies — and the whole toolchain lives there)
+cd frontend && npm install --include=dev
 npm run dev        # http://localhost:5173
 npm run check && npm test
 ```
