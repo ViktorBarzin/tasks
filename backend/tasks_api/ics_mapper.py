@@ -18,16 +18,16 @@ ride along untouched. Golden-file tests assert that byte-for-byte (unfolded).
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Final, Literal
 
 from icalendar import Calendar, Todo
 
 from tasks_api import recurrence
 
-PRIORITY_NONE = 0
-PRIORITY_HIGH = 1
-PRIORITY_MEDIUM = 5
-PRIORITY_LOW = 9
+PRIORITY_NONE: Final = 0
+PRIORITY_HIGH: Final = 1
+PRIORITY_MEDIUM: Final = 5
+PRIORITY_LOW: Final = 9
 
 PRODID = "-//viktorbarzin//tasks//EN"
 

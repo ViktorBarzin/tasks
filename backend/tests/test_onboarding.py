@@ -1,6 +1,7 @@
 """Onboarding (ADR-0002): live CalDAV validation, Fernet-encrypted storage,
 re-onboarding rotation. All network is the FakeNextcloud transport — offline."""
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -99,7 +100,7 @@ def unit_dsn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 @pytest.fixture
-async def unit_engine(unit_dsn: str) -> AsyncEngine:
+async def unit_engine(unit_dsn: str) -> AsyncIterator[AsyncEngine]:
     engine = db.create_engine(unit_dsn)
     yield engine
     await engine.dispose()

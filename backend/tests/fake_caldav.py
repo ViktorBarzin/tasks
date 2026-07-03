@@ -210,15 +210,15 @@ class FakeNextcloud:
             owner, cal_id = segments[1], segments[2]
             if owner != user:
                 return httpx.Response(403)
-            cal = self.calendars[owner].get(cal_id)
-            if cal is None:
+            calendar = self.calendars[owner].get(cal_id)
+            if calendar is None:
                 return httpx.Response(404)
-            token = self._sync_token(owner, cal_id, cal.version)
+            token = self._sync_token(owner, cal_id, calendar.version)
             body = f"""<?xml version="1.0"?>
 <d:multistatus xmlns:d="DAV:">
  <d:response><d:href>{self._cal_href(owner, cal_id)}</d:href><d:propstat><d:prop>
   <d:sync-token>{escape(token)}</d:sync-token>
-  <d:displayname>{escape(cal.displayname)}</d:displayname>
+  <d:displayname>{escape(calendar.displayname)}</d:displayname>
  </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
 </d:multistatus>"""
             return self._xml(207, body)
