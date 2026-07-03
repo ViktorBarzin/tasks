@@ -196,6 +196,29 @@ def test_now_naive_is_treated_as_utc() -> None:
     assert todo.decoded("DUE") == datetime(2026, 7, 4, 5, 45, tzinfo=UTC)
 
 
+def test_allday_roll_forward_uses_local_sofia_day_not_utc() -> None:
+    # All-day daily due 07-15; completion instant 2026-07-15 23:30 UTC is
+    # already 2026-07-16 02:30 in Europe/Sofia (EEST +03). The next occurrence
+    # must be computed in local time (→ 07-17), never in UTC (which would give
+    # 07-16, still "today" for the household). Contract F / SYNC-11.
+    todo = parse_vtodo("DUE;VALUE=DATE:20260715", "RRULE:FREQ=DAILY")
+    now = datetime(2026, 7, 15, 23, 30, tzinfo=UTC)
+    assert recurrence.roll_forward(todo, now) is True
+    assert todo.decoded("DUE") == date(2026, 7, 17)
+
+
+def test_allday_local_timezone_is_config_overridable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The same instant, but with the local tz overridden to UTC, rolls only to
+    # 07-16 — proving the single config constant drives the all-day rollover.
+    monkeypatch.setenv("TASKS_LOCAL_TZ", "UTC")
+    todo = parse_vtodo("DUE;VALUE=DATE:20260715", "RRULE:FREQ=DAILY")
+    now = datetime(2026, 7, 15, 23, 30, tzinfo=UTC)
+    assert recurrence.roll_forward(todo, now) is True
+    assert todo.decoded("DUE") == date(2026, 7, 16)
+
+
 # -- DTSTART/DUE combinations ----------------------------------------------------
 
 

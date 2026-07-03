@@ -11,14 +11,22 @@ normally (the caller handles that when this returns False).
 """
 
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from dateutil.rrule import rrule, rruleset, rrulestr
 from icalendar import Todo
 from icalendar.prop import vRecur
 
+from tasks_api.config import get_settings
+
 
 class RecurrenceError(Exception):
     """Raised when an RRULE cannot be interpreted."""
+
+
+def _local_zone() -> ZoneInfo:
+    """The household's wall-clock zone (config F): all-day rolls compute here."""
+    return ZoneInfo(get_settings().local_timezone)
 
 
 def _as_datetime(value: date | datetime) -> datetime:
@@ -32,7 +40,10 @@ def _comparable_now(now: datetime, base: datetime) -> datetime:
     aware_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
     if base.tzinfo is not None:
         return aware_now
-    return aware_now.astimezone(UTC).replace(tzinfo=None)
+    # Naive (all-day / floating) base: the "next occurrence after now" threshold
+    # is a wall-clock question, so compare in the household's local zone — NOT
+    # UTC, which near midnight lands on the wrong calendar day (SYNC-11 / F).
+    return aware_now.astimezone(_local_zone()).replace(tzinfo=None)
 
 
 def _sanitized_rule_text(recur: vRecur, base: datetime) -> str:
