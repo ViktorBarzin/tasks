@@ -13,6 +13,9 @@
 		withInput?: boolean;
 		placeholder?: string;
 		initial?: string;
+		/** Typed-confirm: the input must equal this exactly before confirm enables
+		 * (destructive list delete). Implies withInput. */
+		requireMatch?: string;
 		onconfirm: (value: string) => void;
 		oncancel: () => void;
 	}
@@ -25,6 +28,7 @@
 		withInput = false,
 		placeholder = '',
 		initial = '',
+		requireMatch = '',
 		onconfirm,
 		oncancel
 	}: Props = $props();
@@ -44,7 +48,10 @@
 		});
 	});
 
-	let confirmDisabled = $derived(withInput && value.trim() === '');
+	let hasInput = $derived(withInput || requireMatch !== '');
+	let confirmDisabled = $derived(
+		hasInput && (requireMatch !== '' ? value.trim() !== requireMatch : value.trim() === '')
+	);
 
 	function confirm(): void {
 		if (confirmDisabled) return;
@@ -68,7 +75,7 @@
 			<div class="alert-body">
 				<h2>{title}</h2>
 				{#if message}<p>{message}</p>{/if}
-				{#if withInput}
+				{#if hasInput}
 					<input
 						bind:this={inputEl}
 						bind:value
