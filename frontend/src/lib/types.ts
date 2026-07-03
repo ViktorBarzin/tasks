@@ -86,8 +86,14 @@ export interface TaskUpdateOp extends OpBase, Partial<TaskFields> {
 export interface TaskCompleteOp extends OpBase {
 	kind: 'task_complete';
 	uid: string;
-	/** Client completion timestamp (ISO datetime). */
+	/** Client completion timestamp (ISO datetime) — the server's roll-forward base. */
 	completed_at: string;
+	/**
+	 * The DUE the client currently shows (ISO date | datetime | null), so the
+	 * server rolls the correct occurrence of a Recurring Task and treats an
+	 * already-advanced object as a duplicate (contract-delta §C).
+	 */
+	occurrence_due: string | null;
 }
 
 export interface TaskUncompleteOp extends OpBase {

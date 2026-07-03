@@ -80,7 +80,8 @@ describe('applyOpToMaps', () => {
 			op_id: 'o',
 			kind: 'task_complete',
 			uid: 'a',
-			completed_at: '2026-07-03T10:00:00'
+			completed_at: '2026-07-03T10:00:00',
+			occurrence_due: null
 		});
 		expect(s.tasks.get('a')).toMatchObject({
 			completed: true,

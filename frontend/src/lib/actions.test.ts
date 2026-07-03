@@ -19,7 +19,7 @@ import {
 import * as db from './db';
 import { _resetReplicaForTests, replica } from './replica';
 import { _resetSyncForTests } from './sync';
-import type { TaskCreateOp, TaskMoveOp } from './types';
+import type { TaskCompleteOp, TaskCreateOp, TaskMoveOp } from './types';
 
 beforeEach(() => {
 	globalThis.indexedDB = new IDBFactory();
@@ -59,6 +59,18 @@ describe('actions', () => {
 		await uncompleteTask(uid);
 		expect(get(replica).tasks.get(uid)?.completed).toBe(false);
 		expect(get(recentlyCompleted).has(uid)).toBe(false);
+	});
+
+	it('completeTask carries completed_at + the current DUE as occurrence_due (§C)', async () => {
+		const listId = await createList('L');
+		const uid = await createTask(listId, { title: 'weekly', due: '2026-07-10' });
+
+		await completeTask(uid);
+
+		const op = (await db.peekOps(20)).find((q) => q.op.kind === 'task_complete')!
+			.op as TaskCompleteOp;
+		expect(op.occurrence_due).toBe('2026-07-10');
+		expect(op.completed_at).toMatch(/^\d{4}-\d\d-\d\dT/);
 	});
 
 	it('update, move, delete mutate the replica and queue ops in order', async () => {
