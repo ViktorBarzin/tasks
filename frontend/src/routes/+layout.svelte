@@ -17,7 +17,7 @@
 	import * as db from '$lib/db';
 	import { loadReplica, replica } from '$lib/replica';
 	import { scheduleSwUpdates } from '$lib/pwa';
-	import { needsReconnect, startSync, syncNow } from '$lib/sync';
+	import { needsLogin, needsReconnect, startSync, syncNow } from '$lib/sync';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -111,7 +111,11 @@
 
 <div class="app-shell">
 	{#if gate === 'app'}
-		{#if $needsReconnect && !showReconnect}
+		{#if $needsLogin}
+			<button class="reconnect-banner" onclick={() => window.location.assign('/')}>
+				Session expired — <strong>sign in</strong>
+			</button>
+		{:else if $needsReconnect && !showReconnect}
 			<button class="reconnect-banner" onclick={() => (showReconnect = true)}>
 				Nextcloud connection failed — <strong>Reconnect</strong>
 			</button>

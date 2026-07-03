@@ -9,6 +9,7 @@ import { _resetReplicaForTests, foldServerState, loadReplica, recordOp, replica 
 import {
 	_resetSyncForTests,
 	drainOpQueue,
+	needsLogin,
 	needsReconnect,
 	online,
 	pendingOps,
@@ -63,6 +64,17 @@ function syncBody(payload: SyncPayload): Response {
 		status: 200,
 		headers: { 'content-type': 'application/json' }
 	});
+}
+
+/** A response as it appears with redirect:'manual' after the Authentik bounce. */
+function opaqueRedirect(): Response {
+	return {
+		type: 'opaqueredirect',
+		ok: false,
+		status: 0,
+		headers: new Headers(),
+		json: async () => ({})
+	} as unknown as Response;
 }
 
 /** Applied-status results for every op in a posted batch. */
@@ -367,6 +379,16 @@ describe('syncNow (full cycle)', () => {
 
 		expect(get(needsReconnect)).toBe(true);
 		expect(get(online)).toBe(true);
+	});
+
+	it('flags needsLogin (not offline) when the API hits the Authentik wall (§I)', async () => {
+		fetchMock.mockImplementation(async () => opaqueRedirect());
+
+		await syncNow();
+
+		expect(get(needsLogin)).toBe(true);
+		expect(get(online)).toBe(true);
+		expect(get(needsReconnect)).toBe(false);
 	});
 
 	it('coalesces concurrent calls into one in-flight cycle', async () => {

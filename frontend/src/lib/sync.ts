@@ -8,7 +8,7 @@
  */
 import { writable } from 'svelte/store';
 
-import { api, ApiError } from './api';
+import { api, ApiError, AuthWallError } from './api';
 import * as db from './db';
 import { foldServerState } from './replica';
 
@@ -19,6 +19,9 @@ export const syncing = writable(false);
 export const pendingOps = writable(0);
 /** Server said 401: the stored Nextcloud app password no longer works. */
 export const needsReconnect = writable(false);
+/** Authentik SSO session expired: a full re-login is needed (distinct from
+ * offline and from a revoked Nextcloud password). */
+export const needsLogin = writable(false);
 export const lastSyncAt = writable<number | null>(null);
 
 const OPS_BATCH_SIZE = 25;
@@ -102,8 +105,13 @@ async function cycle(): Promise<void> {
 		}
 		online.set(true);
 		needsReconnect.set(false);
+		needsLogin.set(false);
 	} catch (err) {
-		if (err instanceof ApiError) {
+		if (err instanceof AuthWallError) {
+			// SSO session lapsed — reachable, but bounced to login. Not offline.
+			online.set(true);
+			needsLogin.set(true);
+		} else if (err instanceof ApiError) {
 			online.set(true);
 			if (err.status === 401) {
 				// Revoked/rotated app password: stop hammering; Onboarding resolves it.
@@ -197,5 +205,6 @@ export function _resetSyncForTests(): void {
 	syncing.set(false);
 	pendingOps.set(0);
 	needsReconnect.set(false);
+	needsLogin.set(false);
 	lastSyncAt.set(null);
 }

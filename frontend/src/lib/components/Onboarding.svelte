@@ -5,7 +5,7 @@
 	 * Also serves as the re-onboarding path when the app password is revoked
 	 * (needsReconnect banner → here).
 	 */
-	import { api, ApiError } from '$lib/api';
+	import { api, ApiError, AuthWallError } from '$lib/api';
 
 	interface Props {
 		/** Authentik username, prefilled as the likely NC username. */
@@ -35,6 +35,12 @@
 			appPassword = '';
 			ondone();
 		} catch (err) {
+			if (err instanceof AuthWallError) {
+				// SSO session lapsed while onboarding — a full navigation re-runs login
+				// (not the wrong "offline" message). §I.
+				window.location.assign('/');
+				return;
+			}
 			if (err instanceof ApiError && err.status === 401) {
 				error = 'Nextcloud rejected those credentials. Check the username and paste a fresh app password.';
 			} else if (err instanceof ApiError) {
