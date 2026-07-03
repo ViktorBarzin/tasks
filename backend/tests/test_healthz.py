@@ -3,6 +3,10 @@
 from fastapi.testclient import TestClient
 
 from tasks_api.app import create_app
+from tests.conftest import auth
+
+# The first two tests run without the lifespan on purpose: /healthz and the
+# identity middleware must work before (and regardless of) DB startup.
 
 
 def test_healthz() -> None:
@@ -17,8 +21,7 @@ def test_api_rejects_missing_identity_header() -> None:
     assert client.get("/api/me").status_code == 401
 
 
-def test_me_trusts_authentik_header() -> None:
-    client = TestClient(create_app())
-    response = client.get("/api/me", headers={"X-Authentik-Username": "viktor"})
+def test_me_trusts_authentik_header(client: TestClient) -> None:
+    response = client.get("/api/me", headers=auth())
     assert response.status_code == 200
     assert response.json() == {"username": "viktor", "connected": False}
