@@ -121,11 +121,13 @@
 		transition: opacity 0.15s ease;
 	}
 
-	.scroller.ptr-armed .ptr-spinner {
+	/* ptr-* classes are added at runtime by the pullToRefresh action, so they
+	   must be :global for the scoped-CSS compiler to keep these rules. */
+	.scroller:global(.ptr-armed) .ptr-spinner {
 		opacity: 1;
 	}
 
-	.scroller.ptr-refreshing .ptr-spinner {
+	.scroller:global(.ptr-refreshing) .ptr-spinner {
 		opacity: 1;
 		animation: ptr-rotate 0.8s linear infinite;
 	}

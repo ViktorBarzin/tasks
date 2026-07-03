@@ -16,7 +16,9 @@
 	}
 	let { username = '', reconnect = false, ondone, oncancel = null }: Props = $props();
 
-	let ncUsername = $state(username);
+	// Writable-derived: prefills from the Authentik username (and tracks a late
+	// identity fetch) while staying editable — the likely NC username matches.
+	let ncUsername = $derived(username);
 	let appPassword = $state('');
 	let busy = $state(false);
 	let error = $state<string | null>(null);
