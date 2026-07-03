@@ -5,7 +5,7 @@ import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as db from './db';
-import { _resetReplicaForTests, foldServerState, recordOp, replica } from './replica';
+import { _resetReplicaForTests, foldServerState, loadReplica, recordOp, replica } from './replica';
 import {
 	_resetSyncForTests,
 	drainOpQueue,
@@ -258,6 +258,26 @@ describe('foldServerState', () => {
 		// …including durably (restart-safe).
 		const onDisk = await db.readReplica();
 		expect(onDisk.tasks.has('local')).toBe(true);
+	});
+});
+
+describe('loadReplica (cold launch)', () => {
+	it('replays a queued op whose effect never persisted — mid-write kill (§J)', async () => {
+		// A snapshot on disk…
+		await db.applySyncPayload({
+			cursor: 'c1',
+			full: true,
+			lists: [list('l1')],
+			tasks: [task('a', 'l1', { title: 'original' })]
+		});
+		// …plus a queued edit that crashed before its optimistic Replica write
+		// (recordOp enqueues durably first, then applies).
+		await db.enqueueOp({ op_id: 'op-e', kind: 'task_update', uid: 'a', title: 'edited offline' });
+
+		await loadReplica();
+
+		// The edit is visible offline even though it never hit IndexedDB's task row.
+		expect(get(replica).tasks.get('a')?.title).toBe('edited offline');
 	});
 });
 
