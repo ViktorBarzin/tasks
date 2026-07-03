@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as db from './db';
 import type { Op, SyncPayload, Task, TaskList } from './types';
 
-function list(id: string, name = id, deleted = false): TaskList {
-	return { id, name, deleted };
+function list(id: string, name = id, deleted = false, order: number | null = null): TaskList {
+	return { id, name, order, deleted };
 }
 
 function task(uid: string, list_id = 'l1', extra: Partial<Task> = {}): Task {

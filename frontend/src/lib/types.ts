@@ -11,6 +11,12 @@ export type Priority = 0 | 1 | 5 | 9;
 export interface TaskList {
 	id: string;
 	name: string;
+	/**
+	 * Home-screen position from the collection's Apple `calendar-order`
+	 * property; `null` when unset — sort by `(order ?? MAX, name)` so
+	 * unordered Lists sink below ordered ones (contract delta v1.2 §1).
+	 */
+	order: number | null;
 	deleted: boolean;
 }
 
@@ -54,6 +60,7 @@ export type OpKind =
 	| 'task_delete'
 	| 'list_create'
 	| 'list_rename'
+	| 'list_reorder'
 	| 'list_delete';
 
 /** Fields of a Task the client can edit (task_update carries a subset). */
@@ -133,6 +140,17 @@ export interface ListRenameOp extends OpBase {
 	name: string;
 }
 
+/**
+ * Set a List's Home-screen position (contract delta v1.2 §2): the server
+ * PROPPATCHes `calendar-order` on the collection. One op per List whose
+ * order actually changed; idempotent (journal + same-value set is a no-op).
+ */
+export interface ListReorderOp extends OpBase {
+	kind: 'list_reorder';
+	list_id: string;
+	order: number;
+}
+
 export interface ListDeleteOp extends OpBase {
 	kind: 'list_delete';
 	list_id: string;
@@ -147,6 +165,7 @@ export type Op =
 	| TaskDeleteOp
 	| ListCreateOp
 	| ListRenameOp
+	| ListReorderOp
 	| ListDeleteOp;
 
 /**

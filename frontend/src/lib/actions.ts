@@ -114,6 +114,19 @@ export async function renameList(listId: string, name: string): Promise<void> {
 	kick();
 }
 
+/**
+ * Commit a Home-screen reorder: one `list_reorder` op per changed List
+ * (`planListReorder` computes the minimal set), optimistic order applied
+ * locally, single sync kick (contract delta v1.2 §2).
+ */
+export async function reorderLists(changes: { listId: string; order: number }[]): Promise<void> {
+	if (!changes.length) return;
+	for (const { listId, order } of changes) {
+		await recordOp({ op_id: uuid(), kind: 'list_reorder', list_id: listId, order });
+	}
+	kick();
+}
+
 export async function deleteList(listId: string): Promise<void> {
 	await recordOp({ op_id: uuid(), kind: 'list_delete', list_id: listId });
 	kick();

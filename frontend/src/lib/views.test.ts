@@ -9,6 +9,7 @@ import {
 	buildTodayView,
 	filterGroups,
 	filterTasks,
+	planListReorder,
 	searchTasks,
 	sortedLists,
 	viewCounts
@@ -16,8 +17,8 @@ import {
 
 const NOW = new Date(2026, 6, 3, 10, 30, 0); // Fri 2026-07-03
 
-function list(id: string, name: string): TaskList {
-	return { id, name, deleted: false };
+function list(id: string, name: string, order: number | null = null): TaskList {
+	return { id, name, order, deleted: false };
 }
 
 let n = 0;
@@ -234,8 +235,88 @@ describe('viewCounts / sortedLists', () => {
 		expect(counts.byList.get('work')).toBe(2);
 	});
 
-	it('sortedLists is alphabetical', () => {
+	it('sortedLists is alphabetical when no List carries an order', () => {
 		const s = state([]);
 		expect(sortedLists(s).map((l) => l.name)).toEqual(['Groceries', 'Work']);
+	});
+});
+
+describe('sortedLists with calendar-order (contract v1.2)', () => {
+	function withLists(lists: TaskList[]): ReplicaState {
+		return { lists: new Map(lists.map((l) => [l.id, l])), tasks: new Map() };
+	}
+
+	it('sorts by order first, unordered Lists sink below, alphabetical within ties', () => {
+		const s = withLists([
+			list('zulu', 'Zulu', 0),
+			list('alpha', 'Alpha', null),
+			list('mid', 'Mid', 2),
+			list('beta', 'Beta', null),
+			list('tie-b', 'B-tie', 1),
+			list('tie-a', 'A-tie', 1)
+		]);
+		expect(sortedLists(s).map((l) => l.id)).toEqual([
+			'zulu', // 0
+			'tie-a', // 1, name tie-break
+			'tie-b', // 1
+			'mid', // 2
+			'alpha', // unordered, alphabetical
+			'beta'
+		]);
+	});
+
+	it('buildAllView groups follow the List order', () => {
+		const s: ReplicaState = {
+			lists: new Map([
+				['groceries', list('groceries', 'Groceries', 1)],
+				['work', list('work', 'Work', 0)]
+			]),
+			tasks: new Map()
+		};
+		s.tasks.set('a', task('milk'));
+		s.tasks.set('b', task('report', { list_id: 'work' }));
+		const groups = buildAllView(s, { showCompleted: false, now: NOW });
+		expect(groups.map((g) => g.heading)).toEqual(['Work', 'Groceries']);
+	});
+});
+
+describe('planListReorder', () => {
+	const lists = [list('a', 'A', 0), list('b', 'B', 1), list('c', 'C', 2)];
+
+	it('emits one op per List whose stored order differs from its new index', () => {
+		// Drag C to the front: every position shifts.
+		expect(planListReorder(lists, ['c', 'a', 'b'])).toEqual([
+			{ listId: 'c', order: 0 },
+			{ listId: 'a', order: 1 },
+			{ listId: 'b', order: 2 }
+		]);
+	});
+
+	it('emits nothing when the order is unchanged', () => {
+		expect(planListReorder(lists, ['a', 'b', 'c'])).toEqual([]);
+	});
+
+	it('only the moved tail changes when the head keeps its positions', () => {
+		expect(planListReorder(lists, ['a', 'c', 'b'])).toEqual([
+			{ listId: 'c', order: 1 },
+			{ listId: 'b', order: 2 }
+		]);
+	});
+
+	it('a first-ever reorder (all orders null) emits one op per List', () => {
+		const fresh = [list('a', 'A'), list('b', 'B'), list('c', 'C')];
+		expect(planListReorder(fresh, ['b', 'a', 'c'])).toEqual([
+			{ listId: 'b', order: 0 },
+			{ listId: 'a', order: 1 },
+			{ listId: 'c', order: 2 }
+		]);
+	});
+
+	it('ignores ids that vanished from the Replica mid-drag', () => {
+		expect(planListReorder(lists, ['ghost', 'a', 'b', 'c'])).toEqual([
+			{ listId: 'a', order: 1 },
+			{ listId: 'b', order: 2 },
+			{ listId: 'c', order: 3 }
+		]);
 	});
 });

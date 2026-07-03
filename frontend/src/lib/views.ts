@@ -64,11 +64,38 @@ function allTasks(state: ReplicaState): Task[] {
 	return [...state.tasks.values()].filter((t) => state.lists.has(t.list_id));
 }
 
-/** Lists in stable alphabetical order. */
+/** Unordered Lists (`order: null`) sink below every explicitly ordered one. */
+const UNORDERED = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Lists in the user's order — by `(order ?? MAX, name)` (contract v1.2 §1).
+ * Feeds Home, the All-view grouping and the TaskSheet List picker, so the
+ * ordering is consistent app-wide.
+ */
 export function sortedLists(state: ReplicaState): TaskList[] {
-	return [...state.lists.values()].sort((a, b) =>
-		a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+	return [...state.lists.values()].sort(
+		(a, b) =>
+			(a.order ?? UNORDERED) - (b.order ?? UNORDERED) ||
+			a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 	);
+}
+
+/**
+ * The `list_reorder` ops a drop commits: position in `newIds` becomes the
+ * List's `order`, and only Lists whose stored `order` differs emit an op
+ * (the first-ever reorder therefore emits one per List — all start `null`).
+ */
+export function planListReorder(
+	lists: TaskList[],
+	newIds: string[]
+): { listId: string; order: number }[] {
+	const byId = new Map(lists.map((l) => [l.id, l]));
+	const changes: { listId: string; order: number }[] = [];
+	newIds.forEach((id, index) => {
+		const l = byId.get(id);
+		if (l && l.order !== index) changes.push({ listId: id, order: index });
+	});
+	return changes;
 }
 
 /** Today: due today or overdue. Grace-period tasks stay put. */

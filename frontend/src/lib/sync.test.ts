@@ -19,8 +19,8 @@ import {
 } from './sync';
 import type { Op, OpResult, SyncPayload, Task, TaskList } from './types';
 
-function list(id: string, name = id): TaskList {
-	return { id, name, deleted: false };
+function list(id: string, name = id, order: number | null = null): TaskList {
+	return { id, name, order, deleted: false };
 }
 
 function task(uid: string, list_id = 'l1', extra: Partial<Task> = {}): Task {
@@ -275,6 +275,31 @@ describe('foldServerState', () => {
 		expect(state.tasks.get('a')?.title).toBe('renamed');
 		expect(state.tasks.has('b')).toBe(false);
 		expect(await db.getCursor()).toBe('c2');
+	});
+
+	it('folds a server-side order change into the Replica (contract v1.2)', async () => {
+		await foldServerState({
+			cursor: 'c1',
+			full: true,
+			lists: [list('l1', 'Personal'), list('l2', 'Work', 0)],
+			tasks: []
+		});
+		expect(get(replica).lists.get('l1')?.order).toBeNull();
+		expect(get(replica).lists.get('l2')?.order).toBe(0);
+
+		// Another device reordered: the delta re-ships the Lists with new orders.
+		await foldServerState({
+			cursor: 'c2',
+			full: false,
+			lists: [list('l1', 'Personal', 0), list('l2', 'Work', 1)],
+			tasks: []
+		});
+		const state = get(replica);
+		expect(state.lists.get('l1')?.order).toBe(0);
+		expect(state.lists.get('l2')?.order).toBe(1);
+		// Durably too (restart-safe).
+		const onDisk = await db.readReplica();
+		expect(onDisk.lists.get('l1')?.order).toBe(0);
 	});
 
 	it('rebases still-queued local ops on top of a full snapshot', async () => {

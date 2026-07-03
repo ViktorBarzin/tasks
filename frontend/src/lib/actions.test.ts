@@ -13,13 +13,14 @@ import {
 	moveTask,
 	recentlyCompleted,
 	renameList,
+	reorderLists,
 	uncompleteTask,
 	updateTask
 } from './actions';
 import * as db from './db';
 import { _resetReplicaForTests, replica } from './replica';
 import { _resetSyncForTests } from './sync';
-import type { TaskCompleteOp, TaskCreateOp, TaskMoveOp } from './types';
+import type { ListReorderOp, TaskCompleteOp, TaskCreateOp, TaskMoveOp } from './types';
 
 beforeEach(() => {
 	globalThis.indexedDB = new IDBFactory();
@@ -107,6 +108,34 @@ describe('actions', () => {
 		expect(moveOp.list_id).toBe(a); // source
 		expect(moveOp.to_list_id).toBe(b); // destination
 		expect(get(replica).tasks.get(uid)?.list_id).toBe(b);
+	});
+
+	it('reorderLists emits one list_reorder op per change and applies optimistically', async () => {
+		const a = await createList('A');
+		const b = await createList('B');
+
+		await reorderLists([
+			{ listId: b, order: 0 },
+			{ listId: a, order: 1 }
+		]);
+
+		const state = get(replica);
+		expect(state.lists.get(b)?.order).toBe(0);
+		expect(state.lists.get(a)?.order).toBe(1);
+
+		const reorders = (await db.peekOps(20))
+			.filter((q) => q.op.kind === 'list_reorder')
+			.map((q) => q.op as ListReorderOp);
+		expect(reorders.map((o) => [o.list_id, o.order])).toEqual([
+			[b, 0],
+			[a, 1]
+		]);
+		for (const o of reorders) expect(o.op_id).toMatch(/^[0-9a-f-]{36}$/);
+	});
+
+	it('reorderLists with no changes records nothing', async () => {
+		await reorderLists([]);
+		expect(await db.peekOps(10)).toEqual([]);
 	});
 
 	it('renameList and deleteList cascade locally', async () => {
