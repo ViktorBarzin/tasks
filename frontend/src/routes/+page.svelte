@@ -1,7 +1,14 @@
 <script lang="ts">
 	/** Home: search, Smart View tiles (Today / Scheduled / All with counts),
-	 * My Lists with open counts (Edit → drag handles reorder them, server-backed
-	 * via list_reorder ops), New Task + Add List in the bottom bar. */
+	 * My Lists with open counts (long-press a row to reorder; Edit → drag
+	 * handles, both server-backed via list_reorder ops), New Task + Add List in
+	 * the bottom bar.
+	 *
+	 * NOTHING on Home is an <a>: iOS owns long-press on links (Safari link
+	 * preview / context menu), which both looks wrong in a standalone PWA and
+	 * steals the long-press-to-reorder gesture. Tiles and rows are role="link"
+	 * elements navigating via goto(), with touch-callout/user-select off
+	 * statically — iOS decides the gesture BEFORE any JS runs. */
 	import { goto } from '$app/navigation';
 
 	import { createList, recentlyCompleted, reorderLists } from '$lib/actions';
@@ -26,12 +33,17 @@
 	let counts = $derived(viewCounts($replica, $now));
 	let hits = $derived(searchTasks($replica, query));
 
-	// --- Edit mode: reorder Lists with drag handles (contract v1.2 §2). The
-	// dragReorder action owns the gesture (transforms only, rAF-driven) and
-	// reports the drop as (from, to); the commit emits one list_reorder op per
-	// changed List and `pendingOrder` bridges the ms until the optimistic fold
-	// re-sorts the store. Pull-to-refresh is off for the whole Edit mode so an
-	// at-the-top downward drag can never be hijacked as a refresh pull.
+	// --- Reordering (contract v1.2 §2), two entry points: long-press-to-lift on
+	// any row (no Edit mode — native Reminders behavior, liftOnHold) and the
+	// Edit-mode drag handles (immediate grab). The dragReorder action owns the
+	// gesture (transforms only, rAF-driven) and reports the drop as (from, to);
+	// the commit emits one list_reorder op per changed List and `pendingOrder`
+	// bridges the ms until the optimistic fold re-sorts the store.
+	// Pull-to-refresh is off for the whole Edit mode so an at-the-top downward
+	// drag can never be hijacked as a refresh pull; outside Edit mode a
+	// long-press hold is stationary by definition (>8px cancels it), so PTR
+	// never arms before a lift, and after the lift the action's touchmove
+	// blocker owns the stream.
 	let editMode = $state(false);
 	let pendingOrder = $state<string[] | null>(null);
 
@@ -81,6 +93,13 @@
 		const id = await createList(name);
 		await goto(`/list/${id}`);
 	}
+
+	/** Keyboard activation for the role="link" tiles/rows (Enter, like an <a>). */
+	function linkKeydown(e: KeyboardEvent, href: string): void {
+		if (e.key !== 'Enter') return;
+		e.preventDefault();
+		void goto(href);
+	}
 </script>
 
 <Screen title="Tasks" refreshDisabled={editMode}>
@@ -126,7 +145,13 @@
 	{:else}
 		<div class="tiles">
 			{#each tiles as tile (tile.href)}
-				<a class="tile card" href={tile.href}>
+				<div
+					class="tile card"
+					role="link"
+					tabindex="0"
+					onclick={() => void goto(tile.href)}
+					onkeydown={(e) => linkKeydown(e, tile.href)}
+				>
 					<span class="tile-top">
 						<span class="tile-icon" style:background={tile.color}>
 							<Icon path={tile.icon} size={16} stroke={2.2} />
@@ -134,16 +159,12 @@
 						<span class="tile-count">{tile.count}</span>
 					</span>
 					<span class="tile-label">{tile.label}</span>
-				</a>
+				</div>
 			{/each}
 		</div>
 
 		<h2 class="eyebrow section-heading">My Lists</h2>
-		<div
-			class="card hairline-rows"
-			class:reordering={editMode}
-			use:dragReorder={{ enabled: editMode, onreorder }}
-		>
+		<div class="card hairline-rows" use:dragReorder={{ enabled: true, liftOnHold: true, onreorder }}>
 			{#each displayLists as l (l.id)}
 				{#if editMode}
 					<div class="list-row" data-drag-item>
@@ -161,14 +182,21 @@
 						</button>
 					</div>
 				{:else}
-					<a class="list-row" href={`/list/${l.id}`}>
+					<div
+						class="list-row nav"
+						data-drag-item
+						role="link"
+						tabindex="0"
+						onclick={() => void goto(`/list/${l.id}`)}
+						onkeydown={(e) => linkKeydown(e, `/list/${l.id}`)}
+					>
 						<span class="list-dot" style:background={listColor(l.id)}>
 							<Icon path={ICON_LIST} size={15} stroke={2} />
 						</span>
 						<span class="list-name">{l.name}</span>
 						<span class="list-count">{counts.byList.get(l.id) ?? 0}</span>
 						<svg class="chevron" width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="m1.5 1.5 5 5.5-5 5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-					</a>
+					</div>
 				{/if}
 			{:else}
 				<p class="empty">
@@ -202,12 +230,18 @@
 		gap: 12px;
 	}
 
+	/* Tiles are role="link" divs, NOT anchors — see the header comment. The
+	   static callout/select-off is what keeps iOS from claiming a long-press. */
 	.tile {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 		padding: 12px;
 		color: inherit;
+		cursor: pointer;
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
 	}
 
 	.tile:active {
@@ -245,16 +279,31 @@
 		margin: 22px 2px 8px;
 	}
 
+	/* Rows are long-press drag targets in EVERY mode: callout/select off
+	   statically (iOS decides the gesture before JS runs) and `pan-y` so the
+	   list still scrolls until a lift actually happens; after the lift the
+	   dragReorder action's touchmove blocker owns the stream. `position` +
+	   the zero box-shadow are the lift styling's static base. */
 	.list-row {
 		display: flex;
 		align-items: center;
 		gap: 12px;
 		padding: 11px 14px;
 		color: inherit;
+		position: relative;
+		box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+		touch-action: pan-y;
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
 	}
 
-	/* Links only — grabbing a handle in Edit mode must not flash the row. */
-	a.list-row:active {
+	/* Nav rows only — grabbing a handle in Edit mode must not flash the row. */
+	.list-row.nav {
+		cursor: pointer;
+	}
+
+	.list-row.nav:active {
 		background: var(--card-pressed);
 	}
 
@@ -297,21 +346,11 @@
 		font-weight: 600;
 	}
 
-	/* Reorder mode: the dragReorder action drives transforms/transitions inline
-	   (rAF-throttled, content-space math); this is only the static look — the
-	   lift shadow, stacking, and the handle's hit target. */
-	.reordering {
-		user-select: none;
-		-webkit-user-select: none;
-	}
-
-	.reordering .list-row {
-		position: relative; /* stacking context: the lifted row rides on top */
-		box-shadow: 0 0 0 rgba(0, 0, 0, 0); /* transition base for the lift shadow */
-	}
-
-	/* .drag-lifted is added at runtime by the dragReorder action. */
-	.reordering .list-row:global(.drag-lifted) {
+	/* The lift look (any mode — long-press or Edit handle): the dragReorder
+	   action drives transforms/transitions inline (rAF-throttled, content-space
+	   math); this is only the static shadow/stacking. `.drag-lifted` is added
+	   at runtime by the action. */
+	.list-row:global(.drag-lifted) {
 		z-index: 2;
 		background: var(--card);
 		border-radius: 10px;
@@ -335,7 +374,7 @@
 		cursor: grab;
 	}
 
-	.reordering .list-row:global(.drag-lifted) .drag-handle {
+	.list-row:global(.drag-lifted) .drag-handle {
 		cursor: grabbing;
 	}
 

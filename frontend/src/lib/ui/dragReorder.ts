@@ -12,6 +12,21 @@
  *    lifted row `.drag-lifted` (lift styling — shadow/z-index — lives in CSS;
  *    the action drives transforms/transitions inline).
  *
+ * Two ways to engage:
+ *  - HANDLE (Edit mode): pointerdown on `[data-drag-handle]` grabs immediately;
+ *  - LONG-PRESS (`liftOnHold` — native Reminders behavior): pointerdown
+ *    anywhere on a `[data-drag-item]` starts a ~350ms hold (holdGesture.ts).
+ *    Rows keep `touch-action: pan-y`, so the page scrolls natively until the
+ *    lift: >8px of pre-lift travel cancels the hold (it was a scroll) and a
+ *    pointercancel means the native pan claimed the touch. Only when the hold
+ *    FIRES does the action own the gesture — pointer capture plus the
+ *    non-passive `touchmove` blocker added at lift time preventDefault the
+ *    still-cancelable touch stream (the finger held still, so WebKit hasn't
+ *    committed to a scroll). A lifted gesture's click is swallowed by a
+ *    capture-phase listener so the row's tap action (navigation) never runs;
+ *    `contextmenu` inside the container is always defaultPrevented (no
+ *    callout / context UI on long-press).
+ *
  * Mechanics (mobile-first, zero layout thrash):
  *  - geometry is snapshotted ONCE at grab (content-space row boxes + the
  *    scroller viewport); after that the drag never reads layout — the rAF
@@ -34,6 +49,7 @@
  */
 import { flushSync } from 'svelte';
 
+import { createHoldGesture } from './holdGesture';
 import {
 	applyReorder,
 	clampDy,
@@ -51,6 +67,8 @@ export interface DragReorderOptions {
 	onreorder: (from: number, to: number) => void;
 	/** Scrolling ancestor for edge auto-scroll; defaults to the nearest overflow-y auto/scroll ancestor. */
 	scroller?: () => HTMLElement | null;
+	/** Long-press anywhere on a row lifts it — no handle, no Edit mode (Reminders parity). */
+	liftOnHold?: boolean;
 }
 
 const SETTLE_MS = 180;
@@ -113,12 +131,51 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 		e.stopPropagation();
 	}
 
+	// --- Long-press-to-lift (liftOnHold): the pending press being timed. ---
+	let holdItem: HTMLElement | null = null;
+	let holdPointerId: number | null = null;
+	const hold = createHoldGesture({
+		onlift(_x, y) {
+			const item = holdItem;
+			const pointerId = holdPointerId;
+			holdItem = null;
+			if (item && pointerId !== null && item.isConnected) grab(item, pointerId, y);
+		}
+	});
+
+	function clearHold(): void {
+		holdItem = null;
+		holdPointerId = null;
+	}
+
 	function onPointerDown(e: PointerEvent): void {
 		if (!opts.enabled || live !== null || !e.isPrimary) return;
-		const handle = (e.target as Element | null)?.closest('[data-drag-handle]');
-		if (!handle || !node.contains(handle)) return;
-		const item = handle.closest<HTMLElement>('[data-drag-item]');
-		if (!item) return;
+		const target = e.target as Element | null;
+		const handle = target?.closest('[data-drag-handle]');
+		if (handle && node.contains(handle)) {
+			const item = handle.closest<HTMLElement>('[data-drag-item]');
+			if (!item) return;
+			// No focus flash / mouse-compat events on the handle — it has no tap
+			// semantics of its own.
+			e.preventDefault();
+			grab(item, e.pointerId, e.clientY);
+			return;
+		}
+		if (!opts.liftOnHold) return;
+		const item = target?.closest<HTMLElement>('[data-drag-item]');
+		if (!item || !node.contains(item)) return;
+		// Row-body press: do NOT preventDefault (a quick tap must stay a click)
+		// and do not own the touch yet — `touch-action: pan-y` keeps scrolling
+		// native. The hold machine arbitrates: travel = scroll, stillness = lift.
+		holdItem = item;
+		holdPointerId = e.pointerId;
+		hold.down(e.clientX, e.clientY);
+	}
+
+	/** Engage the drag on `item` — shared by the handle path (at pointerdown)
+	 * and the long-press path (when the hold fires mid-gesture). */
+	function grab(item: HTMLElement, pointerId: number, clientY: number): void {
+		if (!opts.enabled || live !== null) return;
 		finishSettle();
 		const items = [...node.querySelectorAll<HTMLElement>(':scope > [data-drag-item]')];
 		const from = items.indexOf(item);
@@ -140,10 +197,9 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 			viewBottom = r.bottom;
 		}
 
-		// No focus flash / mouse-compat events; capture keeps the stream on the
-		// container even if rows re-render mid-drag.
-		e.preventDefault();
-		node.setPointerCapture(e.pointerId);
+		// Capture keeps the stream on the container even if rows re-render
+		// mid-drag (and, for a long-press lift, retargets the in-flight touch).
+		node.setPointerCapture(pointerId);
 
 		node.classList.add('drag-reorder-active');
 		node.style.userSelect = 'none';
@@ -156,20 +212,22 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 		item.style.transition = LIFTED_TRANSITION;
 		item.classList.add('drag-lifted');
 
+		// From here the gesture is OURS: preventDefault every (still-cancelable)
+		// touchmove so WebKit never starts a native scroll post-lift.
 		node.addEventListener('touchmove', blockTouch, { passive: false });
 
 		const observer = new MutationObserver(() => cancelDrag());
 		observer.observe(node, { childList: true });
 
 		live = {
-			pointerId: e.pointerId,
+			pointerId,
 			items,
 			rows,
 			from,
 			to: from,
-			startY: e.clientY,
+			startY: clientY,
 			startScroll,
-			lastY: e.clientY,
+			lastY: clientY,
 			dy: 0,
 			applied: items.map(() => 0),
 			scroller,
@@ -211,18 +269,42 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 	}
 
 	function onPointerMove(e: PointerEvent): void {
-		if (!live || e.pointerId !== live.pointerId) return;
-		live.lastY = e.clientY; // the rAF loop consumes it — nothing else here
+		if (live) {
+			if (e.pointerId === live.pointerId) live.lastY = e.clientY; // the rAF loop consumes it
+			return;
+		}
+		if (e.pointerId === holdPointerId) hold.move(e.clientX, e.clientY);
 	}
 
 	function onPointerUp(e: PointerEvent): void {
+		if (e.pointerId === holdPointerId) {
+			hold.up(); // pre-lift: a tap (click proceeds); post-lift: arms click suppression
+			clearHold();
+		}
 		if (!live || e.pointerId !== live.pointerId) return;
 		finishDrag(true);
 	}
 
 	function onPointerCancel(e: PointerEvent): void {
+		if (e.pointerId === holdPointerId) {
+			hold.cancel(); // the native pan claimed the touch — no lift, no suppression
+			clearHold();
+		}
 		if (!live || e.pointerId !== live.pointerId) return;
 		finishDrag(false);
+	}
+
+	/** A gesture that lifted must not also tap: swallow its click before the
+	 * row's own handler (navigation) can see it. */
+	function onClickCapture(e: MouseEvent): void {
+		if (!hold.consumeClickSuppression()) return;
+		e.preventDefault();
+		e.stopPropagation();
+	}
+
+	/** No callout / context UI anywhere in the rows — long-press means drag. */
+	function onContextMenu(e: Event): void {
+		e.preventDefault();
 	}
 
 	function cancelDrag(): void {
@@ -277,19 +359,29 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 	node.addEventListener('pointermove', onPointerMove);
 	node.addEventListener('pointerup', onPointerUp);
 	node.addEventListener('pointercancel', onPointerCancel);
+	node.addEventListener('click', onClickCapture, true);
+	node.addEventListener('contextmenu', onContextMenu);
 
 	return {
 		update(next: DragReorderOptions) {
 			opts = next;
-			if (!next.enabled) cancelDrag();
+			if (!next.enabled) {
+				cancelDrag();
+				hold.cancel();
+				clearHold();
+			}
 		},
 		destroy() {
 			cancelDrag();
 			finishSettle();
+			hold.destroy();
+			clearHold();
 			node.removeEventListener('pointerdown', onPointerDown);
 			node.removeEventListener('pointermove', onPointerMove);
 			node.removeEventListener('pointerup', onPointerUp);
 			node.removeEventListener('pointercancel', onPointerCancel);
+			node.removeEventListener('click', onClickCapture, true);
+			node.removeEventListener('contextmenu', onContextMenu);
 		}
 	};
 }
