@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ReplicaState } from './ops';
 import type { Priority, Task, TaskList } from './types';
+import { applyReorder } from './ui/reorderMath';
 import {
 	buildAllView,
 	buildListView,
@@ -318,5 +319,49 @@ describe('planListReorder', () => {
 			{ listId: 'b', order: 2 },
 			{ listId: 'c', order: 3 }
 		]);
+	});
+
+	// A drop is applyReorder(from, to) → planListReorder: pin that the composed
+	// op set stays MINIMAL — exactly the Lists whose position changed, never all.
+	describe('composed with a drag-and-drop (applyReorder)', () => {
+		const five = [
+			list('a', 'A', 0),
+			list('b', 'B', 1),
+			list('c', 'C', 2),
+			list('d', 'D', 3),
+			list('e', 'E', 4)
+		];
+		const ids = five.map((l) => l.id);
+
+		it('row 0 → position 3 touches exactly the four displaced Lists', () => {
+			expect(planListReorder(five, applyReorder(ids, 0, 3))).toEqual([
+				{ listId: 'b', order: 0 },
+				{ listId: 'c', order: 1 },
+				{ listId: 'd', order: 2 },
+				{ listId: 'a', order: 3 }
+			]);
+		});
+
+		it('row 4 → position 1 leaves the untouched head out of the op set', () => {
+			expect(planListReorder(five, applyReorder(ids, 4, 1))).toEqual([
+				{ listId: 'e', order: 1 },
+				{ listId: 'b', order: 2 },
+				{ listId: 'c', order: 3 },
+				{ listId: 'd', order: 4 }
+			]);
+		});
+
+		it('an adjacent swap emits exactly two ops', () => {
+			expect(planListReorder(five, applyReorder(ids, 2, 3))).toEqual([
+				{ listId: 'd', order: 2 },
+				{ listId: 'c', order: 3 }
+			]);
+		});
+
+		it('a jitter drop (from === to) emits no ops at all', () => {
+			for (let i = 0; i < ids.length; i++) {
+				expect(planListReorder(five, applyReorder(ids, i, i))).toEqual([]);
+			}
+		});
 	});
 });

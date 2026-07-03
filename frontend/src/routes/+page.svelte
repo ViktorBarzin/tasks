@@ -13,6 +13,7 @@
 	import { replica, replicaLoaded } from '$lib/replica';
 	import type { Task, TaskList } from '$lib/types';
 	import { now } from '$lib/ui/clock';
+	import { applyReorder, dragReorder } from '$lib/ui/dragReorder';
 	import { listColor } from '$lib/ui/listColors';
 	import { planListReorder, searchTasks, sortedLists, viewCounts } from '$lib/views';
 
@@ -25,22 +26,13 @@
 	let counts = $derived(viewCounts($replica, $now));
 	let hits = $derived(searchTasks($replica, query));
 
-	// --- Edit mode: reorder Lists with drag handles (contract v1.2 §2). While a
-	// drag is live the rows keep their DOM order and move via transforms; the
-	// drop commits one list_reorder op per changed List and `pendingOrder`
-	// bridges the ms until the optimistic fold re-sorts the store.
+	// --- Edit mode: reorder Lists with drag handles (contract v1.2 §2). The
+	// dragReorder action owns the gesture (transforms only, rAF-driven) and
+	// reports the drop as (from, to); the commit emits one list_reorder op per
+	// changed List and `pendingOrder` bridges the ms until the optimistic fold
+	// re-sorts the store. Pull-to-refresh is off for the whole Edit mode so an
+	// at-the-top downward drag can never be hijacked as a refresh pull.
 	let editMode = $state(false);
-
-	interface DragState {
-		id: string;
-		from: number;
-		to: number;
-		startY: number;
-		dy: number;
-		rowH: number;
-		pointerId: number;
-	}
-	let drag = $state<DragState | null>(null);
 	let pendingOrder = $state<string[] | null>(null);
 
 	let displayLists = $derived.by((): TaskList[] => {
@@ -49,67 +41,28 @@
 		return pendingOrder.map((id) => byId.get(id)).filter((l): l is TaskList => l !== undefined);
 	});
 
-	function clamp(v: number, lo: number, hi: number): number {
-		return Math.max(lo, Math.min(hi, v));
-	}
-
 	function toggleEdit(): void {
 		editMode = !editMode;
-		drag = null;
 	}
 
-	function dragStart(e: PointerEvent, id: string): void {
-		const from = displayLists.findIndex((l) => l.id === id);
-		if (from < 0) return;
-		const handle = e.currentTarget as HTMLElement;
-		const rowH = (handle.closest('.list-row') as HTMLElement | null)?.offsetHeight || 52;
-		handle.setPointerCapture(e.pointerId);
-		drag = { id, from, to: from, startY: e.clientY, dy: 0, rowH, pointerId: e.pointerId };
-	}
-
-	function dragMove(e: PointerEvent): void {
-		if (!drag || e.pointerId !== drag.pointerId) return;
-		// Keep the row inside the card (.card clips overflow).
-		const dy = clamp(
-			e.clientY - drag.startY,
-			-drag.from * drag.rowH,
-			(displayLists.length - 1 - drag.from) * drag.rowH
+	/** Drop from the dragReorder action — runs inside flushSync, so setting
+	 * `pendingOrder` re-renders the rows before the action's transform reset. */
+	function onreorder(from: number, to: number): void {
+		const ids = applyReorder(
+			displayLists.map((l) => l.id),
+			from,
+			to
 		);
-		const to = clamp(drag.from + Math.round(dy / drag.rowH), 0, displayLists.length - 1);
-		drag = { ...drag, dy, to };
+		pendingOrder = ids;
+		void commitReorder(ids);
 	}
 
-	async function dragEnd(e: PointerEvent): Promise<void> {
-		if (!drag || e.pointerId !== drag.pointerId) return;
-		const d = drag;
-		drag = null;
-		const ids = displayLists.map((l) => l.id);
-		const from = ids.indexOf(d.id);
-		if (from < 0 || from === d.to) return;
-		ids.splice(from, 1);
-		ids.splice(d.to, 0, d.id);
-		pendingOrder = ids;
+	async function commitReorder(ids: string[]): Promise<void> {
 		try {
-			await reorderLists(planListReorder(displayLists, ids));
+			await reorderLists(planListReorder(lists, ids));
 		} finally {
 			pendingOrder = null;
 		}
-	}
-
-	function dragCancel(e: PointerEvent): void {
-		if (drag && e.pointerId === drag.pointerId) drag = null;
-	}
-
-	/** Visual shift of row `index` while a drag is live (dragged row follows
-	 * the pointer, displaced neighbours step one row height aside). */
-	function rowTransform(index: number, id: string): string | undefined {
-		if (!drag) return undefined;
-		if (id === drag.id) return `translateY(${drag.dy}px)`;
-		if (drag.from < drag.to && index > drag.from && index <= drag.to)
-			return `translateY(${-drag.rowH}px)`;
-		if (drag.to < drag.from && index >= drag.to && index < drag.from)
-			return `translateY(${drag.rowH}px)`;
-		return undefined;
 	}
 
 	const ICON_TODAY = 'M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M18.4 5.6l-1.5 1.5M7.1 16.9l-1.5 1.5M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z';
@@ -130,7 +83,7 @@
 	}
 </script>
 
-<Screen title="Tasks">
+<Screen title="Tasks" refreshDisabled={editMode}>
 	{#snippet right()}
 		{#if lists.length > 1 && !query.trim()}
 			<button class="edit-btn" class:strong={editMode} onclick={toggleEdit}>
@@ -186,25 +139,23 @@
 		</div>
 
 		<h2 class="eyebrow section-heading">My Lists</h2>
-		<div class="card hairline-rows" class:reordering={editMode}>
-			{#each displayLists as l, index (l.id)}
+		<div
+			class="card hairline-rows"
+			class:reordering={editMode}
+			use:dragReorder={{ enabled: editMode, onreorder }}
+		>
+			{#each displayLists as l (l.id)}
 				{#if editMode}
-					<div
-						class="list-row"
-						class:dragging={drag?.id === l.id}
-						style:transform={rowTransform(index, l.id)}
-					>
+					<div class="list-row" data-drag-item>
 						<span class="list-dot" style:background={listColor(l.id)}>
 							<Icon path={ICON_LIST} size={15} stroke={2} />
 						</span>
 						<span class="list-name">{l.name}</span>
 						<button
+							type="button"
 							class="drag-handle"
+							data-drag-handle
 							aria-label={`Reorder ${l.name}`}
-							onpointerdown={(e) => dragStart(e, l.id)}
-							onpointermove={dragMove}
-							onpointerup={dragEnd}
-							onpointercancel={dragCancel}
 						>
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16" /></svg>
 						</button>
@@ -302,7 +253,8 @@
 		color: inherit;
 	}
 
-	.list-row:active {
+	/* Links only — grabbing a handle in Edit mode must not flash the row. */
+	a.list-row:active {
 		background: var(--card-pressed);
 	}
 
@@ -345,22 +297,25 @@
 		font-weight: 600;
 	}
 
-	/* Reorder mode: rows move via transforms; the grabbed one rides on top. */
+	/* Reorder mode: the dragReorder action drives transforms/transitions inline
+	   (rAF-throttled, content-space math); this is only the static look — the
+	   lift shadow, stacking, and the handle's hit target. */
 	.reordering {
 		user-select: none;
 		-webkit-user-select: none;
 	}
 
 	.reordering .list-row {
-		position: relative;
-		transition: transform 0.15s ease;
+		position: relative; /* stacking context: the lifted row rides on top */
+		box-shadow: 0 0 0 rgba(0, 0, 0, 0); /* transition base for the lift shadow */
 	}
 
-	.reordering .list-row.dragging {
-		transition: none;
+	/* .drag-lifted is added at runtime by the dragReorder action. */
+	.reordering .list-row:global(.drag-lifted) {
 		z-index: 2;
 		background: var(--card);
-		box-shadow: 0 3px 14px rgba(0, 0, 0, 0.18);
+		border-radius: 10px;
+		box-shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
 	}
 
 	.drag-handle {
@@ -368,16 +323,19 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 40px;
-		height: 40px;
-		margin: -5px -8px -5px 0;
+		width: 44px; /* iOS minimum hit target */
+		height: 44px;
+		margin: -7px -10px -7px 0;
 		color: var(--muted);
-		/* The drag owns the gesture — never hand it to the scroller. */
+		/* The drag owns the gesture from the very first touch — no native pan,
+		   nothing for pull-to-refresh. Must be CSS: an inline write from
+		   pointerdown is too late for the touch that just started. */
 		touch-action: none;
+		-webkit-touch-callout: none;
 		cursor: grab;
 	}
 
-	.dragging .drag-handle {
+	.reordering .list-row:global(.drag-lifted) .drag-handle {
 		cursor: grabbing;
 	}
 
