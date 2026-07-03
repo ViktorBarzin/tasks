@@ -106,7 +106,7 @@ async def _full_snapshot(engine: CalDAVEngine, lists: list[ListInfo]) -> SyncRes
     return SyncResponse(
         cursor=cursor_codec.encode_cursor(tokens, href_uids),
         full=True,
-        lists=[TaskList(id=li.id, name=li.name, deleted=False) for li in lists],
+        lists=[TaskList(id=li.id, name=li.name, order=li.order, deleted=False) for li in lists],
         tasks=tasks,
     )
 
@@ -120,7 +120,9 @@ async def _delta(
     tokens: dict[str, str] = {}
     tasks: list[Task] = []
     href_uids: dict[str, str] = dict(old_index)  # carry the index forward
-    list_entries = [TaskList(id=li.id, name=li.name, deleted=False) for li in lists]
+    list_entries = [
+        TaskList(id=li.id, name=li.name, order=li.order, deleted=False) for li in lists
+    ]
     for info in lists:
         old_token = old_tokens.get(info.id)
         if old_token is None:
@@ -144,7 +146,7 @@ async def _delta(
             tasks.append(_tombstone(uid, info.id))
     current_ids = {li.id for li in lists}
     list_entries.extend(
-        TaskList(id=gone, name="", deleted=True)
+        TaskList(id=gone, name="", order=None, deleted=True)
         for gone in sorted(set(old_tokens) - current_ids)
     )
     return SyncResponse(

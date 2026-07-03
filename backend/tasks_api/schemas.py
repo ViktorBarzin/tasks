@@ -18,6 +18,7 @@ OpKind = Literal[
     "task_delete",
     "list_create",
     "list_rename",
+    "list_reorder",
     "list_delete",
 ]
 
@@ -49,6 +50,10 @@ class TaskList(BaseModel):
 
     id: str
     name: str
+    # Home-screen position from the collection's Apple ``calendar-order``
+    # property; ``None`` when unset (clients sort those after ordered Lists,
+    # then by name). Contract delta v1.2 §1.
+    order: int | None
     deleted: bool
 
 

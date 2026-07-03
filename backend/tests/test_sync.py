@@ -87,6 +87,29 @@ def test_undecodable_cursor_is_a_full_snapshot(onboarded_client: TestClient) -> 
     assert len(payload["tasks"]) == 4
 
 
+def test_list_order_ships_in_snapshot_and_delta(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # calendar-order (Apple ns) read by the home PROPFIND → TaskList.order;
+    # unset property (404 propstat) → null (contract delta v1.2 §1).
+    fake_nc.calendars[NC_USER]["work"].order = 1
+    payload = sync(onboarded_client)
+    assert {(li["id"], li["order"]) for li in payload["lists"]} == {
+        ("personal", None),
+        ("work", 1),
+    }
+    # Lists ship whole in every response, so an order change (made by another
+    # device) propagates through a delta without any sync-token involvement.
+    fake_nc.calendars[NC_USER]["work"].order = 0
+    fake_nc.calendars[NC_USER]["personal"].order = 2
+    delta = sync(onboarded_client, cursor=payload["cursor"])
+    assert delta["full"] is False
+    assert {(li["id"], li["order"]) for li in delta["lists"]} == {
+        ("personal", 2),
+        ("work", 0),
+    }
+
+
 # -- delta -----------------------------------------------------------------------
 
 

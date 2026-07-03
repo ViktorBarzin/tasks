@@ -23,6 +23,8 @@ Kind-specific Op fields (the client sends exactly these):
 - ``task_move``: ``uid``, ``list_id`` (SOURCE hint), ``to_list_id`` (DESTINATION)
 - ``list_create``: ``list_id`` (client-generated, URL-safe), ``name``
 - ``list_rename``: ``list_id``, ``name``
+- ``list_reorder``: ``list_id``, ``order`` (int → PROPPATCH ``calendar-order``,
+  contract v1.2)
 - ``list_delete``: ``list_id``
 """
 
@@ -114,6 +116,13 @@ def _require_str(op: Op, field: str) -> str:
     value = _extras(op).get(field)
     if not isinstance(value, str) or not value:
         raise OpError(f"{op.kind} requires {field}")
+    return value
+
+
+def _require_int(op: Op, field: str) -> int:
+    value = _extras(op).get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise OpError(f"{op.kind} requires an integer {field}")
     return value
 
 
@@ -331,6 +340,19 @@ async def _list_rename(engine: CalDAVEngine, lists: _ListCache, op: Op) -> Apply
     return "applied"
 
 
+async def _list_reorder(engine: CalDAVEngine, lists: _ListCache, op: Op) -> ApplyStatus:
+    """PROPPATCH ``calendar-order`` (contract v1.2). Naturally idempotent: the
+    journal absorbs op_id replays, and re-setting the same value is a no-op."""
+    list_id = _require_list_id(op)
+    order = _require_int(op, "order")
+    lists.invalidate()
+    try:
+        await engine.set_list_order(list_id, order)
+    except CalDAVNotFound as exc:
+        raise OpError(f"list {list_id!r} not found") from exc
+    return "applied"
+
+
 async def _list_delete(engine: CalDAVEngine, lists: _ListCache, op: Op) -> ApplyStatus:
     list_id = _require_list_id(op)
     lists.invalidate()
@@ -353,6 +375,7 @@ async def _apply_op(
         "task_move": lambda: _task_move(engine, lists, op),
         "list_create": lambda: _list_create(engine, lists, op),
         "list_rename": lambda: _list_rename(engine, lists, op),
+        "list_reorder": lambda: _list_reorder(engine, lists, op),
         "list_delete": lambda: _list_delete(engine, lists, op),
     }
     return await handlers[op.kind]()

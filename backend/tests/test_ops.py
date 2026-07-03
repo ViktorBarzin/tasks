@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tasks_api.app import create_app
 from tasks_api.routers import ops as ops_module
-from tests.conftest import NC_PASS, NC_USER, auth, load_golden
+from tests.conftest import NC_PASS, NC_USER, auth, load_golden, unfold_lines
 from tests.fake_caldav import FakeNextcloud
 from tests.test_sync import NC_SIMPLE_UID, sync, task_by_uid
 
@@ -128,6 +128,66 @@ def test_create_without_title_errors(onboarded_client: TestClient) -> None:
     results = post_ops(onboarded_client, op("task_create", "c1", uid="u-1", list_id="work"))
     assert results[0]["status"] == "error"
     assert "title" in results[0]["error"]
+
+
+# -- creation field fidelity (contract delta v1.2 §3: quick-add priority + sheet) --
+
+
+@pytest.mark.parametrize("priority", [0, 1, 5, 9])
+def test_create_honors_each_priority_level(onboarded_client: TestClient, priority: int) -> None:
+    post_ops(
+        onboarded_client,
+        op("task_create", "c1", uid="prio-task", list_id="work", title="P", priority=priority),
+    )
+    assert task_by_uid(sync(onboarded_client), "prio-task")["priority"] == priority
+
+
+def test_create_priority_none_writes_no_priority_prop(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    post_ops(
+        onboarded_client,
+        op("task_create", "c1", uid="p0", list_id="work", title="No prio", priority=0),
+    )
+    lines = unfold_lines(fake_nc.get_object(NC_USER, "work", "p0.ics").ics)
+    assert not any(line.startswith(b"PRIORITY") for line in lines)
+
+
+def test_create_invalid_priority_errors(onboarded_client: TestClient) -> None:
+    results = post_ops(
+        onboarded_client,
+        op("task_create", "c1", uid="bad-prio", list_id="work", title="x", priority=3),
+    )
+    assert results[0]["status"] == "error"
+    assert "priority" in results[0]["error"]
+
+
+def test_create_honors_notes_and_allday_due(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # The expanded quick-add sheet sends the full field set in one task_create.
+    post_ops(
+        onboarded_client,
+        op(
+            "task_create",
+            "c1",
+            uid="full-create",
+            list_id="work",
+            title="Water plants",
+            notes="the balcony ones\nand the ficus",
+            due="2026-07-12",
+            due_has_time=False,
+            priority=9,
+        ),
+    )
+    task = task_by_uid(sync(onboarded_client), "full-create")
+    assert task["notes"] == "the balcony ones\nand the ficus"
+    assert task["due"] == "2026-07-12"
+    assert task["due_has_time"] is False
+    assert task["priority"] == 9
+    # A real DATE value on the wire, not a midnight DATE-TIME.
+    lines = unfold_lines(fake_nc.get_object(NC_USER, "work", "full-create.ics").ics)
+    assert b"DUE;VALUE=DATE:20260712" in lines
 
 
 # -- task_update -----------------------------------------------------------------
@@ -478,6 +538,75 @@ def test_list_rename(onboarded_client: TestClient) -> None:
 def test_list_rename_missing_errors(onboarded_client: TestClient) -> None:
     results = post_ops(onboarded_client, op("list_rename", "l1", list_id="nope", name="X"))
     assert results[0]["status"] == "error"
+
+
+# -- list_reorder (contract delta v1.2 §2) -----------------------------------------
+
+
+def test_list_reorder_applied_and_visible_in_sync(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    results = post_ops(onboarded_client, op("list_reorder", "r1", list_id="work", order=0))
+    assert results == [{"op_id": "r1", "status": "applied", "error": None}]
+    # PROPPATCHed calendar-order on the collection itself.
+    assert fake_nc.calendars[NC_USER]["work"].order == 0
+    assert ("PROPPATCH", "/remote.php/dav/calendars/viktor-nc/work/") in fake_nc.requests
+    lists = {li["id"]: li for li in sync(onboarded_client)["lists"]}
+    assert lists["work"]["order"] == 0
+    assert lists["personal"]["order"] is None  # untouched Lists stay unordered
+
+
+def test_list_reorder_batch_orders_multiple_lists(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # The client emits one op per changed List; they ride in one batch.
+    results = post_ops(
+        onboarded_client,
+        op("list_reorder", "r1", list_id="personal", order=1),
+        op("list_reorder", "r2", list_id="work", order=0),
+    )
+    assert [r["status"] for r in results] == ["applied", "applied"]
+    assert fake_nc.calendars[NC_USER]["personal"].order == 1
+    assert fake_nc.calendars[NC_USER]["work"].order == 0
+
+
+def test_list_reorder_replay_is_duplicate(onboarded_client: TestClient) -> None:
+    reorder = op("list_reorder", "r1", list_id="work", order=3)
+    assert post_ops(onboarded_client, reorder)[0]["status"] == "applied"
+    assert post_ops(onboarded_client, reorder)[0]["status"] == "duplicate"
+
+
+def test_list_reorder_same_value_new_op_id_is_a_noop_apply(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # Idempotent by nature: re-setting the same order (journal lost) is a no-op.
+    post_ops(onboarded_client, op("list_reorder", "r1", list_id="work", order=2))
+    results = post_ops(onboarded_client, op("list_reorder", "r2", list_id="work", order=2))
+    assert results[0]["status"] == "applied"
+    assert fake_nc.calendars[NC_USER]["work"].order == 2
+
+
+def test_list_reorder_missing_list_errors(onboarded_client: TestClient) -> None:
+    results = post_ops(onboarded_client, op("list_reorder", "r1", list_id="nope", order=1))
+    assert results[0]["status"] == "error"
+    assert "nope" in results[0]["error"]
+
+
+@pytest.mark.parametrize("bad_order", [None, "first", 1.5, True])
+def test_list_reorder_invalid_order_errors(
+    onboarded_client: TestClient, bad_order: object
+) -> None:
+    results = post_ops(
+        onboarded_client, op("list_reorder", "r1", list_id="work", order=bad_order)
+    )
+    assert results[0]["status"] == "error"
+    assert "order" in results[0]["error"]
+
+
+def test_list_reorder_without_order_errors(onboarded_client: TestClient) -> None:
+    results = post_ops(onboarded_client, op("list_reorder", "r1", list_id="work"))
+    assert results[0]["status"] == "error"
+    assert "order" in results[0]["error"]
 
 
 def test_list_delete_and_tombstone(

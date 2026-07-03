@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 
 DAV_NS = "DAV:"
 CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
-_NS = {"d": DAV_NS, "c": CALDAV_NS}
+#: Apple's calendar-extension namespace — Nextcloud/sabre store the List
+#: ordering clients agreed on as ``calendar-order`` in it.
+APPLE_NS = "http://apple.com/ns/ical/"
+_NS = {"d": DAV_NS, "c": CALDAV_NS, "a": APPLE_NS}
 
 
 class CalDAVError(Exception):
@@ -71,6 +74,8 @@ class ListInfo:
     id: str
     href: str
     name: str
+    #: Apple ``calendar-order`` value; ``None`` when unset/unparseable.
+    order: int | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,15 @@ class DeltaResult:
 
 def _text(element: ElementTree.Element | None) -> str:
     return element.text or "" if element is not None else ""
+
+
+def _parse_order(raw: str) -> int | None:
+    """A ``calendar-order`` value — ``None`` when absent/empty/unparseable
+    (servers report an unset property as an empty element under a 404 propstat)."""
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return None
 
 
 class CalDAVEngine:
@@ -221,8 +235,9 @@ class CalDAVEngine:
         """All VTODO-capable calendar collections in the user's home."""
         body = (
             '<?xml version="1.0" encoding="utf-8"?>'
-            '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
-            "<d:prop><d:resourcetype/><d:displayname/>"
+            '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"'
+            f' xmlns:a="{APPLE_NS}">'
+            "<d:prop><d:resourcetype/><d:displayname/><a:calendar-order/>"
             "<c:supported-calendar-component-set/></d:prop></d:propfind>"
         ).encode()
         response = await self._request(
@@ -249,7 +264,10 @@ class CalDAVEngine:
                 continue
             list_id = self.list_id_from_href(href)
             name = _text(resp.find(".//d:propstat/d:prop/d:displayname", _NS)).strip()
-            lists.append(ListInfo(id=list_id, href=href, name=name or list_id))
+            order = _parse_order(
+                _text(resp.find(".//d:propstat/d:prop/a:calendar-order", _NS))
+            )
+            lists.append(ListInfo(id=list_id, href=href, name=name or list_id, order=order))
         return sorted(lists, key=lambda li: li.id)
 
     async def create_list(self, list_id: str, name: str) -> None:
@@ -274,12 +292,12 @@ class CalDAVEngine:
         if response.status_code not in (201, 204):
             raise CalDAVError(f"MKCALENDAR {list_id!r} failed: HTTP {response.status_code}")
 
-    async def rename_list(self, list_id: str, name: str) -> None:
-        """PROPPATCH the displayname."""
+    async def _proppatch_list(self, list_id: str, prop_xml: str) -> None:
+        """PROPPATCH one collection property; shared by rename + reorder."""
         body = (
             '<?xml version="1.0" encoding="utf-8"?>'
-            '<d:propertyupdate xmlns:d="DAV:"><d:set><d:prop>'
-            f"<d:displayname>{escape(name)}</d:displayname>"
+            f'<d:propertyupdate xmlns:d="DAV:" xmlns:a="{APPLE_NS}"><d:set><d:prop>'
+            f"{prop_xml}"
             "</d:prop></d:set></d:propertyupdate>"
         ).encode()
         response = await self._request(
@@ -295,6 +313,14 @@ class CalDAVEngine:
         status = _text(self._multistatus(response).find(".//d:propstat/d:status", _NS))
         if "200" not in status:
             raise CalDAVError(f"PROPPATCH {list_id!r} rejected: {status or 'no status'}")
+
+    async def rename_list(self, list_id: str, name: str) -> None:
+        """PROPPATCH the displayname."""
+        await self._proppatch_list(list_id, f"<d:displayname>{escape(name)}</d:displayname>")
+
+    async def set_list_order(self, list_id: str, order: int) -> None:
+        """PROPPATCH the Apple ``calendar-order`` (Home List ordering, v1.2)."""
+        await self._proppatch_list(list_id, f"<a:calendar-order>{order:d}</a:calendar-order>")
 
     async def delete_list(self, list_id: str) -> None:
         """DELETE the collection (Nextcloud keeps it in the calendar trashbin)."""

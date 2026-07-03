@@ -24,7 +24,7 @@ import httpx
 
 BASE_PATH = "/remote.php/dav"
 
-_NS = {"d": "DAV:", "c": "urn:ietf:params:xml:ns:caldav"}
+_NS = {"d": "DAV:", "c": "urn:ietf:params:xml:ns:caldav", "a": "http://apple.com/ns/ical/"}
 
 
 @dataclass
@@ -37,6 +37,8 @@ class FakeObject:
 class FakeCalendar:
     displayname: str
     components: frozenset[str] = frozenset({"VTODO"})
+    #: Apple calendar-order property; None = unset (like a fresh Nextcloud calendar).
+    order: int | None = None
     objects: dict[str, FakeObject] = field(default_factory=dict)
     version: int = 0
     # filename -> (version at last change, deleted?)
@@ -190,17 +192,30 @@ class FakeNextcloud:
             ]
             for cal_id, cal in self.calendars[owner].items():
                 comps = "".join(f'<c:comp name="{escape(c)}"/>' for c in sorted(cal.components))
+                # sabre reports an unset property under a 404 propstat (empty
+                # element); a set calendar-order rides in the 200 block.
+                order_xml = (
+                    f"\n <a:calendar-order>{cal.order}</a:calendar-order>"
+                    if cal.order is not None
+                    else ""
+                )
                 responses.append(
                     f"""<d:response><d:href>{self._cal_href(owner, cal_id)}</d:href>
 <d:propstat><d:prop>
  <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
- <d:displayname>{escape(cal.displayname)}</d:displayname>
+ <d:displayname>{escape(cal.displayname)}</d:displayname>{order_xml}
  <c:supported-calendar-component-set>{comps}</c:supported-calendar-component-set>
 </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"""
                 )
+                if cal.order is None:
+                    responses[-1] = responses[-1].replace(
+                        "</d:response>",
+                        "<d:propstat><d:prop><a:calendar-order/></d:prop>"
+                        "<d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>",
+                    )
             body = (
                 '<?xml version="1.0"?>\n<d:multistatus xmlns:d="DAV:" '
-                'xmlns:c="urn:ietf:params:xml:ns:caldav">'
+                'xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/">'
                 + "".join(responses)
                 + "</d:multistatus>"
             )
@@ -380,14 +395,24 @@ class FakeNextcloud:
             root = ElementTree.fromstring(request.content)
         except ElementTree.ParseError:
             return httpx.Response(400)
+        set_props: list[str] = []
         name_el = root.find(".//d:set/d:prop/d:displayname", _NS)
-        if name_el is None:
+        if name_el is not None:
+            cal.displayname = name_el.text or ""
+            set_props.append("<d:displayname/>")
+        order_el = root.find(".//d:set/d:prop/a:calendar-order", _NS)
+        if order_el is not None:
+            try:
+                cal.order = int((order_el.text or "").strip())
+            except ValueError:
+                return httpx.Response(400)
+            set_props.append("<a:calendar-order/>")
+        if not set_props:
             return httpx.Response(400)
-        cal.displayname = name_el.text or ""
         body = f"""<?xml version="1.0"?>
-<d:multistatus xmlns:d="DAV:">
+<d:multistatus xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/">
  <d:response><d:href>{self._cal_href(user, segments[2])}</d:href>
-  <d:propstat><d:prop><d:displayname/></d:prop>
+  <d:propstat><d:prop>{''.join(set_props)}</d:prop>
   <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
 </d:multistatus>"""
         return self._xml(207, body)
