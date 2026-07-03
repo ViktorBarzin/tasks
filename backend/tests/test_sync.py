@@ -132,6 +132,39 @@ def test_external_delete_ships_a_tombstone(
     assert tombstone["list_id"] == "personal"
 
 
+def test_delete_tombstone_carries_true_uid_not_filename(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # Apple-legacy object: filename != UID. Its delete tombstone must carry the
+    # real UID (as clients store it), not the filename-derived guess, or the
+    # object becomes an undeletable ghost in the Replica (SYNC-6 / contract D).
+    oddball = load_golden("nextcloud_simple.ics").replace(
+        b"UID:nc-web-3f2a1b4c5d6e", b"UID:oddly-named-task"
+    )
+    fake_nc.put_ics(NC_USER, "work", "1D5C9A2E-legacy-apple-name.ics", oddball)
+    cursor = sync(onboarded_client)["cursor"]  # full snapshot builds the href→UID index
+
+    fake_nc.delete_ics(NC_USER, "work", "1D5C9A2E-legacy-apple-name.ics")
+    payload = sync(onboarded_client, cursor=cursor)
+    assert payload["full"] is False
+    tombstone = task_by_uid(payload, "oddly-named-task")
+    assert tombstone["deleted"] is True
+    assert tombstone["list_id"] == "work"
+    # The filename-derived guess must never appear as a phantom tombstone.
+    assert not any(t["uid"] == "1D5C9A2E-legacy-apple-name" for t in payload["tasks"])
+
+
+def test_delete_tombstone_uses_filename_when_uid_matches(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # The common case (filename == UID) is not indexed and still tombstones
+    # correctly via the filename fallback.
+    cursor = sync(onboarded_client)["cursor"]
+    fake_nc.delete_ics(NC_USER, "personal", f"{APPLE_DAILY_UID}.ics")
+    payload = sync(onboarded_client, cursor=cursor)
+    assert task_by_uid(payload, APPLE_DAILY_UID)["deleted"] is True
+
+
 def test_external_create_shows_up_in_delta(
     onboarded_client: TestClient, fake_nc: FakeNextcloud
 ) -> None:
