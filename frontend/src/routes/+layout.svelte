@@ -7,6 +7,7 @@
 	 * sync later flips needsReconnect → banner → re-onboarding overlay.
 	 */
 	import { onMount, type Snippet } from 'svelte';
+	import { get } from 'svelte/store';
 	import { pwaInfo } from 'virtual:pwa-info';
 
 	import '../app.css';
@@ -14,7 +15,7 @@
 	import { api } from '$lib/api';
 	import Onboarding from '$lib/components/Onboarding.svelte';
 	import * as db from '$lib/db';
-	import { loadReplica } from '$lib/replica';
+	import { loadReplica, replica } from '$lib/replica';
 	import { needsReconnect, startSync, syncNow } from '$lib/sync';
 
 	let { children }: { children: Snippet } = $props();
@@ -22,6 +23,9 @@
 	let gate = $state<'loading' | 'onboard' | 'app'>('loading');
 	let username = $state('');
 	let showReconnect = $state(false);
+	/** Entering the app with an empty Replica (fresh onboard / new device):
+	 * cover the shell until the initial full sync lands. */
+	let firstSync = $state(false);
 
 	const webManifestLink = pwaInfo ? pwaInfo.webManifest.linkTag : '';
 
@@ -60,7 +64,15 @@
 
 	function enterApp(): void {
 		gate = 'app';
+		const { lists, tasks } = get(replica);
+		firstSync = lists.size === 0 && tasks.size === 0;
 		startSync();
+		if (firstSync) {
+			// Progress for the initial full snapshot: syncNow coalesces into the
+			// cycle startSync just kicked and resolves when it finishes — success
+			// or not (offline resolves immediately; retries run in background).
+			void syncNow().finally(() => (firstSync = false));
+		}
 	}
 
 	/** Background /api/me probe: refresh the cached username; surface a lost
@@ -98,6 +110,12 @@
 			</button>
 		{/if}
 		{@render children()}
+		{#if firstSync}
+			<div class="first-sync" role="status">
+				<span class="boot-spin"></span>
+				<p>Downloading your tasks from Nextcloud…</p>
+			</div>
+		{/if}
 	{:else if gate === 'onboard'}
 		<Onboarding {username} ondone={onboarded} />
 	{:else}
@@ -157,5 +175,23 @@
 		background: var(--bg);
 		display: flex;
 		flex-direction: column;
+	}
+
+	.first-sync {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		background: var(--bg);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 16px;
+	}
+
+	.first-sync p {
+		margin: 0;
+		color: var(--muted);
+		font-size: 15px;
 	}
 </style>
