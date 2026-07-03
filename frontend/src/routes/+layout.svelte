@@ -17,7 +17,14 @@
 	import * as db from '$lib/db';
 	import { loadReplica, replica } from '$lib/replica';
 	import { scheduleSwUpdates } from '$lib/pwa';
-	import { needsLogin, needsReconnect, startSync, syncNow } from '$lib/sync';
+	import {
+		deadOps,
+		needsLogin,
+		needsReconnect,
+		startSync,
+		syncNow,
+		syncStuck
+	} from '$lib/sync';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -120,6 +127,15 @@
 				Nextcloud connection failed — <strong>Reconnect</strong>
 			</button>
 		{/if}
+		{#if $deadOps > 0}
+			<div class="dead-banner" role="status">
+				{$deadOps} task{$deadOps === 1 ? '' : 's'} couldn’t sync and {$deadOps === 1
+					? 'was'
+					: 'were'} set aside.
+			</div>
+		{:else if $syncStuck}
+			<div class="stuck-banner" role="status">Having trouble syncing — still retrying…</div>
+		{/if}
 		{@render children()}
 		{#if firstSync}
 			<div class="first-sync" role="status">
@@ -152,6 +168,26 @@
 		color: var(--danger);
 		font-size: 14px;
 		text-align: left;
+	}
+
+	.dead-banner,
+	.stuck-banner {
+		flex: none;
+		margin: calc(env(safe-area-inset-top) + 8px) 16px 0;
+		padding: 10px 14px;
+		border-radius: 12px;
+		font-size: 14px;
+		text-align: left;
+	}
+
+	.dead-banner {
+		background: color-mix(in srgb, var(--danger) 14%, var(--card));
+		color: var(--danger);
+	}
+
+	.stuck-banner {
+		background: color-mix(in srgb, var(--orange) 16%, var(--card));
+		color: var(--orange);
 	}
 
 	/* When the banner is present the screen's own navbar top inset doubles up;

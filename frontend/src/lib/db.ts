@@ -9,15 +9,25 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Op, SyncPayload, Task, TaskList } from './types';
 
 const DB_NAME = 'tasks';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** An Op at rest in the queue. `seq` (autoincrement) is the replay order. */
 export interface QueuedOp {
 	seq?: number;
 	op: Op;
 	enqueuedAt: number;
-	/** Times the server answered "error" for this op (drop after MAX_OP_ATTEMPTS). */
+	/** Times the server answered "retry" for this op — drives the stuck-sync
+	 * banner. Retryable ops are NEVER dropped (contract-delta §B). */
 	attempts: number;
+}
+
+/** An Op the server permanently rejected ("error"): parked here for a
+ * "couldn't sync" banner instead of being silently dropped (§B). */
+export interface DeadOp {
+	seq?: number;
+	op: Op;
+	error: string | null;
+	failedAt: number;
 }
 
 interface MetaRow {
@@ -30,6 +40,7 @@ interface TasksDB extends DBSchema {
 	tasks: { key: string; value: Task; indexes: { 'by-list': string } };
 	meta: { key: string; value: MetaRow };
 	op_queue: { key: number; value: QueuedOp };
+	dead_ops: { key: number; value: DeadOp };
 }
 
 let dbPromise: Promise<IDBPDatabase<TasksDB>> | null = null;
@@ -37,12 +48,18 @@ let dbPromise: Promise<IDBPDatabase<TasksDB>> | null = null;
 function db(): Promise<IDBPDatabase<TasksDB>> {
 	if (!dbPromise) {
 		dbPromise = openDB<TasksDB>(DB_NAME, DB_VERSION, {
-			upgrade(database) {
-				database.createObjectStore('lists', { keyPath: 'id' });
-				const tasks = database.createObjectStore('tasks', { keyPath: 'uid' });
-				tasks.createIndex('by-list', 'list_id');
-				database.createObjectStore('meta', { keyPath: 'key' });
-				database.createObjectStore('op_queue', { keyPath: 'seq', autoIncrement: true });
+			upgrade(database, oldVersion) {
+				if (oldVersion < 1) {
+					database.createObjectStore('lists', { keyPath: 'id' });
+					const tasks = database.createObjectStore('tasks', { keyPath: 'uid' });
+					tasks.createIndex('by-list', 'list_id');
+					database.createObjectStore('meta', { keyPath: 'key' });
+					database.createObjectStore('op_queue', { keyPath: 'seq', autoIncrement: true });
+				}
+				if (oldVersion < 2) {
+					// Dead-letter store for permanently-rejected Ops (§B).
+					database.createObjectStore('dead_ops', { keyPath: 'seq', autoIncrement: true });
+				}
 			}
 		});
 	}
@@ -191,4 +208,15 @@ export async function bumpAttempts(seq: number): Promise<void> {
 
 export async function opCount(): Promise<number> {
 	return (await db()).count('op_queue');
+}
+
+// --- Dead-letter store: permanently-failed ops ---
+
+/** Park an Op the server permanently rejected; it leaves the live queue. */
+export async function deadLetterOp(op: Op, error: string | null): Promise<void> {
+	await (await db()).add('dead_ops', plain({ op, error, failedAt: Date.now() }) as DeadOp);
+}
+
+export async function deadOpCount(): Promise<number> {
+	return (await db()).count('dead_ops');
 }

@@ -8,12 +8,14 @@ import * as db from './db';
 import { _resetReplicaForTests, foldServerState, loadReplica, recordOp, replica } from './replica';
 import {
 	_resetSyncForTests,
+	deadOps,
 	drainOpQueue,
 	needsLogin,
 	needsReconnect,
 	online,
 	pendingOps,
-	syncNow
+	syncNow,
+	syncStuck
 } from './sync';
 import type { Op, OpResult, SyncPayload, Task, TaskList } from './types';
 
@@ -163,10 +165,10 @@ describe('drainOpQueue', () => {
 		expect(await db.opCount()).toBe(0);
 	});
 
-	it('keeps an errored op for retry (bumped attempts) and reports blocked', async () => {
+	it('keeps a `retry` op queued (bumped attempts) and reports blocked (§B)', async () => {
 		await db.enqueueOp(createOp('a'));
 		fetchMock.mockImplementation(async () =>
-			ok([{ op_id: 'op-a', status: 'error', error: 'caldav 503' }])
+			ok([{ op_id: 'op-a', status: 'retry', error: 'nextcloud 503' }])
 		);
 
 		const outcome = await drainOpQueue();
@@ -175,37 +177,58 @@ describe('drainOpQueue', () => {
 		expect(await db.opCount()).toBe(1);
 		const [q] = await db.peekOps(1);
 		expect(q!.attempts).toBe(1);
+		expect(await db.deadOpCount()).toBe(0); // a retry is never dead-lettered
 	});
 
-	it('drops an op after repeated server rejections', async () => {
+	it('never drops a `retry` op, and flags stuck after many cycles (§B)', async () => {
 		await db.enqueueOp(createOp('a'));
 		fetchMock.mockImplementation(async () =>
-			ok([{ op_id: 'op-a', status: 'error', error: 'permanently broken' }])
+			ok([{ op_id: 'op-a', status: 'retry', error: 'still 503' }])
 		);
 
-		for (let i = 0; i < 4; i++) expect(await drainOpQueue()).toBe('blocked');
-		expect(await drainOpQueue()).toBe('drained'); // 5th rejection → dropped
-		expect(await db.opCount()).toBe(0);
+		for (let i = 0; i < 8; i++) expect(await drainOpQueue()).toBe('blocked');
+
+		// Retryable ops are never dropped — still queued, never dead-lettered.
+		expect(await db.opCount()).toBe(1);
+		expect(await db.deadOpCount()).toBe(0);
+		expect(get(syncStuck)).toBe(true);
 	});
 
-	it('applies acked results even when a mid-batch op errors', async () => {
+	it('acks the prefix, keeps the `retry` op + everything after it in order (§B)', async () => {
 		await db.enqueueOp(createOp('a'));
 		await db.enqueueOp(createOp('b'));
 		await db.enqueueOp(createOp('c'));
+		// Server applied a, hit a transient failure on b, and stopped — c omitted.
 		fetchMock.mockImplementation(async () =>
 			ok([
 				{ op_id: 'op-a', status: 'applied', error: null },
-				{ op_id: 'op-b', status: 'error', error: 'boom' },
-				{ op_id: 'op-c', status: 'applied', error: null }
+				{ op_id: 'op-b', status: 'retry', error: '503' }
 			])
 		);
 
 		const outcome = await drainOpQueue();
 
-		// a and c were applied server-side and must not replay; b stays queued.
 		expect(outcome).toBe('blocked');
 		const remaining = await db.peekOps(10);
-		expect(remaining.map((q) => q.op.op_id)).toEqual(['op-b']);
+		expect(remaining.map((q) => q.op.op_id)).toEqual(['op-b', 'op-c']);
+	});
+
+	it('dead-letters a permanent `error`, dequeues it, and keeps draining (§B)', async () => {
+		await db.enqueueOp(createOp('a'));
+		await db.enqueueOp(createOp('b'));
+		fetchMock.mockImplementation(async () =>
+			ok([
+				{ op_id: 'op-a', status: 'error', error: 'unknown kind' },
+				{ op_id: 'op-b', status: 'applied', error: null }
+			])
+		);
+
+		const outcome = await drainOpQueue();
+
+		expect(outcome).toBe('drained');
+		expect(await db.opCount()).toBe(0); // both left the live queue
+		expect(await db.deadOpCount()).toBe(1); // the errored op parked, not dropped
+		expect(get(deadOps)).toBe(1);
 	});
 
 	it('leaves the queue untouched when the POST itself fails', async () => {
@@ -322,7 +345,7 @@ describe('syncNow (full cycle)', () => {
 	it('skips the sync GET while the queue is blocked', async () => {
 		await db.enqueueOp(createOp('a'));
 		fetchMock.mockImplementation(async () =>
-			ok([{ op_id: 'op-a', status: 'error', error: 'nope' }])
+			ok([{ op_id: 'op-a', status: 'retry', error: 'nope' }])
 		);
 
 		await syncNow();

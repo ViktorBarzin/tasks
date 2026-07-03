@@ -22,10 +22,15 @@ export const needsReconnect = writable(false);
 /** Authentik SSO session expired: a full re-login is needed (distinct from
  * offline and from a revoked Nextcloud password). */
 export const needsLogin = writable(false);
+/** Permanently-rejected ops parked in the dead-letter store — "N couldn't sync". */
+export const deadOps = writable(0);
+/** A retryable op stuck for many cycles — a persistent sync-failure banner. */
+export const syncStuck = writable(false);
 export const lastSyncAt = writable<number | null>(null);
 
 const OPS_BATCH_SIZE = 25;
-const MAX_OP_ATTEMPTS = 5;
+/** After this many cycles a retryable op is still stuck → persistent-failure banner. */
+const STUCK_AFTER_ATTEMPTS = 5;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 60_000;
 
@@ -37,17 +42,21 @@ let started = false;
 
 export async function refreshPendingCount(): Promise<void> {
 	pendingOps.set(await db.opCount());
+	deadOps.set(await db.deadOpCount());
+	// The front op blocks the queue; many failed cycles on it ⇒ sync is stuck.
+	const [front] = await db.peekOps(1);
+	syncStuck.set((front?.attempts ?? 0) >= STUCK_AFTER_ATTEMPTS);
 }
 
 export type DrainOutcome = 'drained' | 'blocked';
 
 /**
- * Replay the Op Queue in order. Per-op outcomes:
- *  - applied / lww_reapplied / duplicate → done, remove from queue;
- *  - error → the server processed and rejected it; keep it for a bounded
- *    number of retries (a transient CalDAV hiccup), then drop it — the
- *    server copy wins, per Silent LWW.
- * A transport/HTTP failure throws and leaves the queue untouched.
+ * Replay the Op Queue in order (contract-delta §B). Per-op outcome:
+ *  - applied / lww_reapplied / duplicate → terminal success, dequeue;
+ *  - error (permanent) → dead-letter it, dequeue, surface a banner;
+ *  - retry (transient) or an omitted result → this op AND everything after it
+ *    stay queued, in order, to resend next cycle; NEVER dropped.
+ * A transport/HTTP failure throws and leaves the whole queue untouched.
  */
 export async function drainOpQueue(): Promise<DrainOutcome> {
 	for (;;) {
@@ -62,26 +71,21 @@ export async function drainOpQueue(): Promise<DrainOutcome> {
 		for (const q of batch) {
 			const seq = q.seq as number;
 			const result = byId.get(q.op.op_id);
-			if (!result) {
-				// The server never answered for this op — keep it, retry later.
+
+			// A `retry` (transient upstream failure) or a missing result (the server
+			// stops at the first retry and omits the rest) blocks the queue: this op
+			// and everything after it stay queued, in order — never dropped.
+			if (!result || result.status === 'retry') {
+				if (result?.status === 'retry') await db.bumpAttempts(seq);
 				blocked = true;
-				continue;
+				break;
 			}
-			if (result.status === 'error') {
-				if (q.attempts + 1 >= MAX_OP_ATTEMPTS) {
-					console.warn(
-						`tasks: dropping op ${q.op.op_id} (${q.op.kind}) after ${MAX_OP_ATTEMPTS} server rejections:`,
-						result.error
-					);
-					acked.push(seq);
-				} else {
-					await db.bumpAttempts(seq);
-					blocked = true;
-				}
-			} else {
-				// applied | lww_reapplied | duplicate — all mean "the server has it".
-				acked.push(seq);
-			}
+
+			// `error` is permanent: park it in the dead-letter store (banner) so it
+			// leaves the queue instead of wedging every following op behind it.
+			if (result.status === 'error') await db.deadLetterOp(q.op, result.error);
+			// applied | lww_reapplied | duplicate | dead-lettered error → dequeue.
+			acked.push(seq);
 		}
 
 		await db.removeOps(acked);
@@ -206,5 +210,7 @@ export function _resetSyncForTests(): void {
 	pendingOps.set(0);
 	needsReconnect.set(false);
 	needsLogin.set(false);
+	deadOps.set(0);
+	syncStuck.set(false);
 	lastSyncAt.set(null);
 }

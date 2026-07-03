@@ -149,7 +149,16 @@ export type Op =
 	| ListRenameOp
 	| ListDeleteOp;
 
-export type OpStatus = 'applied' | 'lww_reapplied' | 'duplicate' | 'error';
+/**
+ * Per-op replay outcome (contract-delta §B):
+ *  - applied / lww_reapplied / duplicate — terminal successes (the server has it);
+ *  - retry — transient upstream failure (Nextcloud 5xx / timeout); op NOT applied,
+ *    safe to resend. The server stops at the first retry, so ops after it are
+ *    omitted from the results and stay queued in order;
+ *  - error — permanent rejection (4xx / validation / unknown kind); never
+ *    succeeds as-is → the client dead-letters it.
+ */
+export type OpStatus = 'applied' | 'lww_reapplied' | 'duplicate' | 'retry' | 'error';
 
 export interface OpResult {
 	op_id: string;

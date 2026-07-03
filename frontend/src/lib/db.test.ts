@@ -180,6 +180,16 @@ describe('op queue', () => {
 	});
 });
 
+describe('dead-letter store (§B)', () => {
+	it('parks permanently-failed ops out of the live queue and counts them', async () => {
+		expect(await db.deadOpCount()).toBe(0);
+		await db.deadLetterOp(createOp('x'), 'unknown kind');
+		await db.deadLetterOp(createOp('y'), null);
+		expect(await db.deadOpCount()).toBe(2);
+		expect(await db.opCount()).toBe(0); // dead-lettering doesn't touch the live queue
+	});
+});
+
 describe('meta', () => {
 	it('stores and reads arbitrary keys', async () => {
 		expect(await db.getMeta('connected')).toBeUndefined();
