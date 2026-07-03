@@ -126,18 +126,6 @@
 <span hidden>{$recentlyCompleted.size}</span>
 
 <style>
-	.search {
-		width: 100%;
-		background: var(--field);
-		border: none;
-		border-radius: 10px;
-		padding: 8px 12px;
-		outline: none;
-		margin-bottom: 16px;
-		-webkit-appearance: none;
-		appearance: none;
-	}
-
 	.tiles {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
@@ -226,14 +214,6 @@
 	.chevron {
 		color: var(--hairline);
 		flex: none;
-	}
-
-	.empty {
-		padding: 18px 14px;
-		color: var(--muted);
-		font-size: 15px;
-		text-align: center;
-		margin: 0;
 	}
 
 	.results {
