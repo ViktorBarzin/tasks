@@ -6,14 +6,15 @@ properties the Op names (plus SEQUENCE/DTSTAMP/LAST-MODIFIED bookkeeping) and
 re-serializes — VALARM, RRULE, X-APPLE-*, CREATED and anything else Apple wrote
 ride along untouched. Golden-file tests assert that byte-for-byte (unfolded).
 
-| App field | ICS                                  |
-|-----------|--------------------------------------|
-| title     | SUMMARY                              |
-| notes     | DESCRIPTION                          |
-| due       | DUE (DATE or DATE-TIME)              |
-| priority  | PRIORITY 0/9/5/1 (Apple mapping)     |
-| completed | STATUS / COMPLETED / PERCENT-COMPLETE|
-| uid       | UID                                  |
+| App field  | ICS                                  |
+|------------|--------------------------------------|
+| title      | SUMMARY                              |
+| notes      | DESCRIPTION                          |
+| due        | DUE (DATE or DATE-TIME)              |
+| priority   | PRIORITY 0/9/5/1 (Apple mapping)     |
+| sort_order | X-APPLE-SORT-ORDER (signed int)      |
+| completed  | STATUS / COMPLETED / PERCENT-COMPLETE|
+| uid        | UID                                  |
 """
 
 from dataclasses import dataclass
@@ -31,8 +32,11 @@ PRIORITY_LOW: Final = 9
 
 PRODID = "-//viktorbarzin//tasks//EN"
 
+#: Apple's manual-order property (contract delta v1.3): a signed integer.
+SORT_ORDER_PROP = "X-APPLE-SORT-ORDER"
+
 #: Task fields an Op may set via task_create / task_update.
-MUTABLE_FIELDS = frozenset({"title", "notes", "due", "due_has_time", "priority"})
+MUTABLE_FIELDS = frozenset({"title", "notes", "due", "due_has_time", "priority", "sort_order"})
 
 
 class MapperError(Exception):
@@ -49,6 +53,7 @@ class ParsedTask:
     due: str | None
     due_has_time: bool
     priority: Literal[0, 1, 5, 9]
+    sort_order: int | None
     completed: bool
     completed_at: str | None
     recurring: bool
@@ -96,6 +101,20 @@ def _decode_due(todo: Todo) -> tuple[str | None, bool]:
     raise MapperError(f"unsupported DUE value: {value!r}")
 
 
+def _decode_sort_order(todo: Todo) -> int | None:
+    """``X-APPLE-SORT-ORDER`` as an int; absent or unparseable ⇒ ``None``.
+
+    Reads are tolerant (another client may have written garbage) — only our
+    own writes are validated strictly.
+    """
+    if SORT_ORDER_PROP not in todo:
+        return None
+    try:
+        return int(str(todo.get(SORT_ORDER_PROP)).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _decode_completed(todo: Todo) -> tuple[bool, str | None]:
     completed_at: str | None = None
     if "COMPLETED" in todo:
@@ -125,6 +144,7 @@ def parse_task(ics: bytes) -> ParsedTask | None:
         due=due,
         due_has_time=due_has_time,
         priority=normalize_priority(int(todo.get("PRIORITY", 0))),
+        sort_order=_decode_sort_order(todo),
         completed=completed,
         completed_at=completed_at,
         recurring="RRULE" in todo,
@@ -221,6 +241,18 @@ def _apply_fields_to_todo(todo: Todo, fields: dict[str, object]) -> None:
             todo.pop("PRIORITY", None)
         else:
             _set_prop(todo, "PRIORITY", priority)
+    if "sort_order" in fields:
+        sort_order = fields["sort_order"]
+        if sort_order is None:
+            todo.pop(SORT_ORDER_PROP, None)
+        elif isinstance(sort_order, bool) or not isinstance(sort_order, int):
+            raise MapperError(
+                f"invalid sort_order {sort_order!r}: must be an integer or null"
+            )
+        else:
+            # Written as plain text — matching Apple's own bare integer output
+            # (icalendar types unknown X- props as text anyway).
+            _set_prop(todo, SORT_ORDER_PROP, str(sort_order))
 
 
 def build_vtodo(uid: str, fields: dict[str, object], now: datetime) -> bytes:

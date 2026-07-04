@@ -14,9 +14,11 @@ Guarantees, per the contract:
 Kind-specific Op fields (the client sends exactly these):
 
 - ``task_create``: ``uid``, ``list_id``, ``title`` (+ ``notes``, ``due``,
-  ``due_has_time``, ``priority``)
+  ``due_has_time``, ``priority``, ``sort_order``)
 - ``task_update``: ``uid`` (+ ``list_id`` locator hint, and any of ``title``,
-  ``notes``, ``due``, ``due_has_time``, ``priority`` — present fields are set)
+  ``notes``, ``due``, ``due_has_time``, ``priority``, ``sort_order`` — present
+  fields are set; ``sort_order`` is how Custom-mode reordering travels,
+  contract v1.3)
 - ``task_complete``: ``uid`` (+ ``completed_at`` ISO datetime, ``occurrence_due``
   ISO date|datetime|null — the DUE the client saw; guards double roll-forward)
 - ``task_uncomplete`` / ``task_delete``: ``uid``

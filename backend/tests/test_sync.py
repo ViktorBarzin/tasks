@@ -58,12 +58,13 @@ def test_full_snapshot_task_fields_match_contract(onboarded_client: TestClient) 
     timed = task_by_uid(payload, APPLE_TIMED_UID)
     assert set(timed) == {
         "uid", "list_id", "title", "notes", "due", "due_has_time", "priority",
-        "completed", "completed_at", "recurring", "deleted",
+        "sort_order", "completed", "completed_at", "recurring", "deleted",
     }
     assert timed["list_id"] == "personal"
     assert timed["due"] == "2026-07-01T09:00:00+03:00"
     assert timed["due_has_time"] is True
     assert timed["priority"] == 1
+    assert timed["sort_order"] == 740609486  # Apple-era X-APPLE-SORT-ORDER, honored
     assert timed["completed"] is False
     assert timed["recurring"] is True
     assert timed["deleted"] is False
@@ -79,6 +80,7 @@ def test_full_snapshot_task_fields_match_contract(onboarded_client: TestClient) 
     assert simple["due"] is None
     assert simple["priority"] == 0
     assert simple["recurring"] is False
+    assert simple["sort_order"] is None  # no X-APPLE-SORT-ORDER on the object
 
 
 def test_undecodable_cursor_is_a_full_snapshot(onboarded_client: TestClient) -> None:

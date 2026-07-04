@@ -69,6 +69,8 @@ def test_parse_apple_recurring_alarm() -> None:
     assert task.completed is False
     assert task.completed_at is None
     assert task.recurring is True
+    # Apple-era manual order rides along (contract delta v1.3 §1).
+    assert task.sort_order == 740609486
 
 
 def test_parse_apple_allday_until() -> None:
@@ -101,6 +103,7 @@ def test_parse_nextcloud_simple() -> None:
     assert task.priority == 0
     assert task.completed is False
     assert task.recurring is False
+    assert task.sort_order is None  # Nextcloud web writes no X-APPLE-SORT-ORDER
 
 
 def test_parse_non_vtodo_returns_none() -> None:
@@ -242,6 +245,85 @@ def test_invalid_priority_rejected(bad: dict[str, object]) -> None:
         ics_mapper.apply_fields(load_golden("nextcloud_simple.ics"), bad, NOW)
 
 
+# -- sort_order ↔ X-APPLE-SORT-ORDER (contract delta v1.3) --------------------
+
+
+def test_sort_order_update_rewrites_apple_era_value() -> None:
+    # The golden carries Apple's own X-APPLE-SORT-ORDER:740609486 — an update
+    # replaces exactly that line and everything else survives.
+    original = load_golden("apple_recurring_alarm.ics")
+    modified = ics_mapper.apply_fields(original, {"sort_order": 123}, NOW)
+    lines = unfold_lines(modified)
+    assert lines.count(b"X-APPLE-SORT-ORDER:123") == 1
+    assert not any(
+        line.startswith(b"X-APPLE-SORT-ORDER") and line != b"X-APPLE-SORT-ORDER:123"
+        for line in lines
+    )
+    assert_untouched_preserved(original, modified, touched={"X-APPLE-SORT-ORDER"})
+    parsed = ics_mapper.parse_task(modified)
+    assert parsed is not None
+    assert parsed.sort_order == 123
+
+
+def test_sort_order_set_on_object_without_one() -> None:
+    original = load_golden("nextcloud_simple.ics")
+    modified = ics_mapper.apply_fields(original, {"sort_order": 2048}, NOW)
+    assert b"X-APPLE-SORT-ORDER:2048" in unfold_lines(modified)
+    assert_untouched_preserved(original, modified, touched={"X-APPLE-SORT-ORDER"})
+    parsed = ics_mapper.parse_task(modified)
+    assert parsed is not None
+    assert parsed.sort_order == 2048
+
+
+def test_sort_order_negative_round_trips() -> None:
+    # Apple's value space is any signed integer — keep the full range.
+    modified = ics_mapper.apply_fields(
+        load_golden("nextcloud_simple.ics"), {"sort_order": -917}, NOW
+    )
+    assert b"X-APPLE-SORT-ORDER:-917" in unfold_lines(modified)
+    parsed = ics_mapper.parse_task(modified)
+    assert parsed is not None
+    assert parsed.sort_order == -917
+
+
+def test_sort_order_clear_removes_property() -> None:
+    original = load_golden("apple_recurring_alarm.ics")
+    cleared = ics_mapper.apply_fields(original, {"sort_order": None}, NOW)
+    lines = unfold_lines(cleared)
+    assert not any(line.startswith(b"X-APPLE-SORT-ORDER") for line in lines)
+    assert_untouched_preserved(original, cleared, touched={"X-APPLE-SORT-ORDER"})
+
+
+def test_unrelated_edit_preserves_sort_order_byte_identically() -> None:
+    # Property preservation stays intact: a title edit must not touch the
+    # Apple-era order value.
+    modified = ics_mapper.apply_fields(
+        load_golden("apple_recurring_alarm.ics"), {"title": "renamed"}, NOW
+    )
+    assert b"X-APPLE-SORT-ORDER:740609486" in unfold_lines(modified)
+
+
+def test_sort_order_garbage_value_reads_as_null() -> None:
+    ics = (
+        b"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\n"
+        b"BEGIN:VTODO\r\nUID:g-1\r\nSUMMARY:odd\r\n"
+        b"X-APPLE-SORT-ORDER:not-a-number\r\n"
+        b"END:VTODO\r\nEND:VCALENDAR\r\n"
+    )
+    parsed = ics_mapper.parse_task(ics)
+    assert parsed is not None
+    assert parsed.sort_order is None
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"sort_order": True}, {"sort_order": "1024"}, {"sort_order": 1.5}],
+)
+def test_invalid_sort_order_rejected(bad: dict[str, object]) -> None:
+    with pytest.raises(MapperError):
+        ics_mapper.apply_fields(load_golden("nextcloud_simple.ics"), bad, NOW)
+
+
 def test_invalid_due_rejected() -> None:
     with pytest.raises(MapperError):
         ics_mapper.apply_fields(
@@ -372,3 +454,20 @@ def test_build_vtodo_all_day() -> None:
     assert parsed is not None
     assert parsed.due == "2026-07-11"
     assert parsed.due_has_time is False
+
+
+def test_build_vtodo_with_sort_order() -> None:
+    ics = ics_mapper.build_vtodo("new-uid-3", {"title": "Ordered", "sort_order": 3072}, NOW)
+    assert b"X-APPLE-SORT-ORDER:3072" in unfold_lines(ics)
+    parsed = ics_mapper.parse_task(ics)
+    assert parsed is not None
+    assert parsed.sort_order == 3072
+
+
+@pytest.mark.parametrize("fields", [{"title": "t"}, {"title": "t", "sort_order": None}])
+def test_build_vtodo_without_sort_order_writes_no_property(fields: dict[str, object]) -> None:
+    ics = ics_mapper.build_vtodo("new-uid-4", fields, NOW)
+    assert not any(line.startswith(b"X-APPLE-SORT-ORDER") for line in unfold_lines(ics))
+    parsed = ics_mapper.parse_task(ics)
+    assert parsed is not None
+    assert parsed.sort_order is None

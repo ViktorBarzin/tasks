@@ -80,6 +80,17 @@ def test_create_applied_and_visible(onboarded_client: TestClient) -> None:
     assert task["completed"] is False
 
 
+def test_create_carries_sort_order(onboarded_client: TestClient) -> None:
+    # Quick-add appends at max+1024 client-side; the create op carries the key
+    # like any other field (contract delta v1.3 §2/§4).
+    results = post_ops(
+        onboarded_client,
+        op("task_create", "c1", uid="ordered-1", list_id="work", title="Last", sort_order=5120),
+    )
+    assert results == [{"op_id": "c1", "status": "applied", "error": None}]
+    assert task_by_uid(sync(onboarded_client), "ordered-1")["sort_order"] == 5120
+
+
 def test_create_replayed_op_id_is_duplicate(onboarded_client: TestClient) -> None:
     create = op("task_create", "c1", uid="client-uid-1", list_id="work", title="Once")
     assert post_ops(onboarded_client, create)[0]["status"] == "applied"
@@ -273,6 +284,38 @@ def test_update_missing_task_errors(onboarded_client: TestClient) -> None:
 def test_update_with_no_fields_errors(onboarded_client: TestClient) -> None:
     results = post_ops(onboarded_client, op("task_update", "u1", uid=NC_SIMPLE_UID))
     assert results[0]["status"] == "error"
+
+
+def test_update_sets_sort_order(onboarded_client: TestClient) -> None:
+    # Reordering rides task_update — no new op kind (contract delta v1.3 §2).
+    results = post_ops(
+        onboarded_client, op("task_update", "u1", uid=NC_SIMPLE_UID, sort_order=3584)
+    )
+    assert results[0]["status"] == "applied"
+    task = task_by_uid(sync(onboarded_client), NC_SIMPLE_UID)
+    assert task["sort_order"] == 3584
+    assert task["title"] == "Ring insurer about policy renewal"  # untouched
+
+
+def test_update_clears_sort_order_with_null(onboarded_client: TestClient) -> None:
+    post_ops(onboarded_client, op("task_update", "u1", uid=NC_SIMPLE_UID, sort_order=99))
+    results = post_ops(
+        onboarded_client, op("task_update", "u2", uid=NC_SIMPLE_UID, sort_order=None)
+    )
+    assert results[0]["status"] == "applied"
+    assert task_by_uid(sync(onboarded_client), NC_SIMPLE_UID)["sort_order"] is None
+
+
+def test_update_invalid_sort_order_errors_batch_continues(
+    onboarded_client: TestClient,
+) -> None:
+    results = post_ops(
+        onboarded_client,
+        op("task_update", "u1", uid=NC_SIMPLE_UID, sort_order=True),
+        op("task_update", "u2", uid=NC_SIMPLE_UID, sort_order=2048),
+    )
+    assert [r["status"] for r in results] == ["error", "applied"]
+    assert task_by_uid(sync(onboarded_client), NC_SIMPLE_UID)["sort_order"] == 2048
 
 
 # -- task_complete / task_uncomplete ----------------------------------------------

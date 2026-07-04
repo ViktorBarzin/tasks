@@ -67,6 +67,9 @@ class Task(BaseModel):
     due: str | None  # ISO date (all-day) or datetime; see due_has_time
     due_has_time: bool
     priority: Priority
+    # Custom-mode position from the VTODO's ``X-APPLE-SORT-ORDER`` (signed
+    # int); ``None`` when unset — clients sort those last. Contract delta v1.3.
+    sort_order: int | None
     completed: bool
     completed_at: str | None
     recurring: bool
