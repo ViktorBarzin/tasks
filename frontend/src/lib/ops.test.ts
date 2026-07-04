@@ -43,7 +43,10 @@ const CREATE: Op = {
 
 describe('applyOpToMaps', () => {
 	it('task_create adds an open task with the given fields', () => {
-		const s = applyOpToMaps(state([{ id: 'l1', name: 'L', order: null, deleted: false }]), CREATE);
+		const s = applyOpToMaps(
+			state([{ id: 'l1', name: 'L', order: null, sort_mode: null, deleted: false }]),
+			CREATE
+		);
 		const t = s.tasks.get('new');
 		expect(t).toMatchObject({
 			uid: 'new',
@@ -134,7 +137,13 @@ describe('applyOpToMaps', () => {
 
 	it('list_create / list_rename / list_delete manage lists; delete cascades', () => {
 		let s = applyOpToMaps(state(), { op_id: 'o', kind: 'list_create', list_id: 'l9', name: 'Chores' });
-		expect(s.lists.get('l9')).toMatchObject({ name: 'Chores', order: null, deleted: false });
+		expect(s.lists.get('l9')).toEqual({
+			id: 'l9',
+			name: 'Chores',
+			order: null,
+			sort_mode: null,
+			deleted: false
+		});
 
 		s = applyOpToMaps(s, { op_id: 'o2', kind: 'list_rename', list_id: 'l9', name: 'Home' });
 		expect(s.lists.get('l9')?.name).toBe('Home');
@@ -146,14 +155,48 @@ describe('applyOpToMaps', () => {
 	});
 
 	it('list_reorder sets the order optimistically, preserving the rest', () => {
-		const s0 = state([{ id: 'l1', name: 'L', order: 4, deleted: false }]);
+		const s0 = state([{ id: 'l1', name: 'L', order: 4, sort_mode: null, deleted: false }]);
 		const s = applyOpToMaps(s0, { op_id: 'o', kind: 'list_reorder', list_id: 'l1', order: 0 });
-		expect(s.lists.get('l1')).toEqual({ id: 'l1', name: 'L', order: 0, deleted: false });
+		expect(s.lists.get('l1')).toEqual({
+			id: 'l1',
+			name: 'L',
+			order: 0,
+			sort_mode: null,
+			deleted: false
+		});
 		expect(s0.lists.get('l1')?.order).toBe(4); // input untouched
 	});
 
 	it('list_reorder for a List deleted server-side is a no-op', () => {
 		const s = applyOpToMaps(state(), { op_id: 'o', kind: 'list_reorder', list_id: 'ghost', order: 1 });
+		expect(s.lists.size).toBe(0);
+	});
+
+	it('list_set_sort_mode sets the shared mode optimistically, preserving the rest', () => {
+		const s0 = state([{ id: 'l1', name: 'L', order: 4, sort_mode: 'custom', deleted: false }]);
+		const s = applyOpToMaps(s0, {
+			op_id: 'o',
+			kind: 'list_set_sort_mode',
+			list_id: 'l1',
+			sort_mode: 'due'
+		});
+		expect(s.lists.get('l1')).toEqual({
+			id: 'l1',
+			name: 'L',
+			order: 4,
+			sort_mode: 'due',
+			deleted: false
+		});
+		expect(s0.lists.get('l1')?.sort_mode).toBe('custom'); // input untouched
+	});
+
+	it('list_set_sort_mode for a List deleted server-side is a no-op', () => {
+		const s = applyOpToMaps(state(), {
+			op_id: 'o',
+			kind: 'list_set_sort_mode',
+			list_id: 'ghost',
+			sort_mode: 'priority'
+		});
 		expect(s.lists.size).toBe(0);
 	});
 

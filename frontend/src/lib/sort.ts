@@ -3,19 +3,23 @@
  * comparators, plus the Custom-order maintenance math — spaced `sort_order`
  * keys (gap 1024), midpoint insertion, and a MINIMAL re-space plan when a gap
  * is exhausted. Pure functions over Task values; nothing here touches storage,
- * network, or the DOM. The per-List mode itself is a device-local preference
- * persisted in IndexedDB meta (`sort_mode:<listId>`) by the List screen.
+ * network, or the DOM. The per-List MODE itself is shared across the
+ * household's devices since contract delta v1.4: it syncs as
+ * `TaskList.sort_mode`, with the pre-v0.5 device-local IndexedDB meta
+ * (`sort_mode:<listId>`) surviving only as a fallback while the server value
+ * is null (see `effectiveSortMode`).
  */
 import { compareDue } from './dates';
-import type { Task } from './types';
+import type { SortMode, Task } from './types';
 import { applyReorder } from './ui/reorderMath';
 
-/** The three per-List sort modes; 'custom' is the default. */
-export type SortMode = 'custom' | 'priority' | 'due';
+/** The mode enum now lives in the wire contract (types.ts); re-exported here
+ * so sorting call-sites keep one import for modes + comparators. */
+export type { SortMode } from './types';
 
 export const SORT_MODES: readonly SortMode[] = ['custom', 'priority', 'due'];
 
-/** IndexedDB meta key holding a List's device-local sort mode. */
+/** IndexedDB meta key holding a List's device-local sort mode (the fallback). */
 export function sortModeMetaKey(listId: string): string {
 	return `sort_mode:${listId}`;
 }
@@ -23,6 +27,22 @@ export function sortModeMetaKey(listId: string): string {
 /** Anything unknown (corrupt meta, older builds) falls back to 'custom'. */
 export function coerceSortMode(value: unknown): SortMode {
 	return SORT_MODES.includes(value as SortMode) ? (value as SortMode) : 'custom';
+}
+
+/**
+ * The mode a List screen actually renders with (contract delta v1.4 §3): the
+ * server-synced `TaskList.sort_mode` when present, else this device's stored
+ * meta (pre-v0.5 leftover or offline cache), else 'custom'. `undefined`
+ * server input covers Replica rows persisted by pre-v0.5 builds, which lack
+ * the key entirely. The fallback is read-only — it is never auto-pushed; the
+ * first user-initiated change from the picker is what lands the mode
+ * server-side.
+ */
+export function effectiveSortMode(
+	server: SortMode | null | undefined,
+	localFallback: unknown
+): SortMode {
+	return server ?? coerceSortMode(localFallback);
 }
 
 /** Spacing between consecutive Custom keys — room for ~10 midpoint splits. */

@@ -58,7 +58,8 @@ async function persistOpEffect(state: ReplicaState, op: Op): Promise<void> {
 			break;
 		case 'list_create':
 		case 'list_rename':
-		case 'list_reorder': {
+		case 'list_reorder':
+		case 'list_set_sort_mode': {
 			const l = state.lists.get(op.list_id);
 			if (l) await db.putList(l);
 			break;

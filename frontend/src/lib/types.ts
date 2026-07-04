@@ -7,6 +7,9 @@
 /** RFC 5545 PRIORITY, Apple mapping: 0=None, 1=High, 5=Medium, 9=Low (CONTEXT.md). */
 export type Priority = 0 | 1 | 5 | 9;
 
+/** The three shared per-List sort modes (contract delta v1.4). */
+export type SortMode = 'custom' | 'priority' | 'due';
+
 /** A List — a CalDAV calendar collection holding VTODOs. */
 export interface TaskList {
 	id: string;
@@ -17,6 +20,14 @@ export interface TaskList {
 	 * unordered Lists sink below ordered ones (contract delta v1.2 §1).
 	 */
 	order: number | null;
+	/**
+	 * Shared per-List sort mode from the collection's
+	 * `{urn:viktorbarzin:tasks}sort-mode` dead property; `null` when the
+	 * server has no stored preference — the client falls back to its
+	 * device-local choice, defaulting to 'custom' (contract delta v1.4 §1).
+	 * Rows persisted by pre-v0.5 builds lack the key; treat exactly like null.
+	 */
+	sort_mode: SortMode | null;
 	deleted: boolean;
 }
 
@@ -66,6 +77,7 @@ export type OpKind =
 	| 'list_create'
 	| 'list_rename'
 	| 'list_reorder'
+	| 'list_set_sort_mode'
 	| 'list_delete';
 
 /** Fields of a Task the client can edit (task_update carries a subset). */
@@ -159,6 +171,18 @@ export interface ListReorderOp extends OpBase {
 	order: number;
 }
 
+/**
+ * Set a List's SHARED sort mode (contract delta v1.4 §2): the server
+ * PROPPATCHes this app's `sort-mode` dead property on the collection.
+ * Idempotent (journal + same-value set is a no-op); a value outside the
+ * three modes is a per-op error.
+ */
+export interface ListSetSortModeOp extends OpBase {
+	kind: 'list_set_sort_mode';
+	list_id: string;
+	sort_mode: SortMode;
+}
+
 export interface ListDeleteOp extends OpBase {
 	kind: 'list_delete';
 	list_id: string;
@@ -174,6 +198,7 @@ export type Op =
 	| ListCreateOp
 	| ListRenameOp
 	| ListReorderOp
+	| ListSetSortModeOp
 	| ListDeleteOp;
 
 /**

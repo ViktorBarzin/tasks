@@ -15,6 +15,7 @@ import {
 	renameList,
 	reorderLists,
 	reorderTasks,
+	setListSortMode,
 	uncompleteTask,
 	updateTask
 } from './actions';
@@ -23,6 +24,7 @@ import { _resetReplicaForTests, replica } from './replica';
 import { _resetSyncForTests } from './sync';
 import type {
 	ListReorderOp,
+	ListSetSortModeOp,
 	TaskCompleteOp,
 	TaskCreateOp,
 	TaskMoveOp,
@@ -197,6 +199,25 @@ describe('actions', () => {
 	it('reorderTasks with no changes records nothing', async () => {
 		await reorderTasks([]);
 		expect(await db.peekOps(10)).toEqual([]);
+	});
+
+	it('setListSortMode emits one list_set_sort_mode op and applies optimistically (v1.4)', async () => {
+		const listId = await createList('L');
+		expect(get(replica).lists.get(listId)?.sort_mode).toBeNull();
+
+		await setListSortMode(listId, 'priority');
+
+		// Optimistic replica apply: the screen re-sorts instantly.
+		expect(get(replica).lists.get(listId)?.sort_mode).toBe('priority');
+
+		// Exactly one op with exactly the contract's fields.
+		const modeOps = (await db.peekOps(20)).filter((q) => q.op.kind === 'list_set_sort_mode');
+		expect(modeOps).toHaveLength(1);
+		const op = modeOps[0]!.op as ListSetSortModeOp;
+		expect(op.list_id).toBe(listId);
+		expect(op.sort_mode).toBe('priority');
+		expect(op.op_id).toMatch(/^[0-9a-f-]{36}$/);
+		expect(Object.keys(op).sort()).toEqual(['kind', 'list_id', 'op_id', 'sort_mode']);
 	});
 
 	it('renameList and deleteList cascade locally', async () => {

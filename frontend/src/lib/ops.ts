@@ -76,7 +76,13 @@ export function applyOpToMaps(state: ReplicaState, op: Op): ReplicaState {
 		}
 		case 'list_create': {
 			if (!lists.has(op.list_id)) {
-				lists.set(op.list_id, { id: op.list_id, name: op.name, order: null, deleted: false });
+				lists.set(op.list_id, {
+					id: op.list_id,
+					name: op.name,
+					order: null,
+					sort_mode: null,
+					deleted: false
+				});
 			}
 			break;
 		}
@@ -88,6 +94,11 @@ export function applyOpToMaps(state: ReplicaState, op: Op): ReplicaState {
 		case 'list_reorder': {
 			const l = lists.get(op.list_id);
 			if (l) lists.set(op.list_id, { ...l, order: op.order });
+			break;
+		}
+		case 'list_set_sort_mode': {
+			const l = lists.get(op.list_id);
+			if (l) lists.set(op.list_id, { ...l, sort_mode: op.sort_mode });
 			break;
 		}
 		case 'list_delete': {

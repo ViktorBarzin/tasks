@@ -1,11 +1,13 @@
 <script lang="ts">
 	/**
 	 * One List's screen: its Tasks off the Replica (open section sorted by the
-	 * List's device-local sort mode, completed section toggleable, everything
+	 * List's sort mode, completed section toggleable, everything
 	 * search-filterable), quick-add into this List, and the "…" menu with
-	 * Sort By (Custom / Priority / Due Date — persisted per List in IndexedDB
-	 * meta, contract delta v1.3 §3) plus the List lifecycle — rename, and
-	 * delete behind a typed-confirm (Nextcloud's calendar trashbin is the
+	 * Sort By (Custom / Priority / Due Date — SHARED across the household's
+	 * devices via `TaskList.sort_mode` + the `list_set_sort_mode` op; the
+	 * pre-v0.5 device-local IndexedDB meta is only a fallback while the server
+	 * value is null, contract delta v1.4 §3) plus the List lifecycle — rename,
+	 * and delete behind a typed-confirm (Nextcloud's calendar trashbin is the
 	 * recovery net, ADR/design §10).
 	 *
 	 * In Custom mode the open rows reorder by long-press-to-lift drag — the
@@ -21,7 +23,14 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 
-	import { createTask, deleteList, recentlyCompleted, renameList, reorderTasks } from '$lib/actions';
+	import {
+		createTask,
+		deleteList,
+		recentlyCompleted,
+		renameList,
+		reorderTasks,
+		setListSortMode
+	} from '$lib/actions';
 	import ActionMenu from '$lib/components/ActionMenu.svelte';
 	import CompletedBar from '$lib/components/CompletedBar.svelte';
 	import Dialog from '$lib/components/Dialog.svelte';
@@ -31,7 +40,7 @@
 	import TaskSheet from '$lib/components/TaskSheet.svelte';
 	import { getMeta, setMeta } from '$lib/db';
 	import { replica, replicaLoaded } from '$lib/replica';
-	import { coerceSortMode, planTaskReorder, sortModeMetaKey, type SortMode } from '$lib/sort';
+	import { effectiveSortMode, planTaskReorder, sortModeMetaKey, type SortMode } from '$lib/sort';
 	import type { Priority, Task } from '$lib/types';
 	import { now } from '$lib/ui/clock';
 	import { applyReorder, dragReorder } from '$lib/ui/dragReorder';
@@ -61,24 +70,31 @@
 		draftPriority = 0;
 	}
 
-	// --- Sort mode: per-List, device-local (IndexedDB meta — never synced). ---
+	// --- Sort mode: shared per-List via the Replica's `TaskList.sort_mode`
+	// (synced, contract delta v1.4). The device-local IndexedDB meta is ONLY a
+	// fallback while the server value is null (pre-v0.5 leftovers) — it is
+	// never auto-pushed; the first change from the picker lands it server-side.
 	const SORT_LABEL: Record<SortMode, string> = {
 		custom: 'Custom',
 		priority: 'Priority',
 		due: 'Due Date'
 	};
-	let sortMode = $state<SortMode>('custom');
+	let localSortMode = $state<unknown>(undefined);
 	$effect(() => {
 		const id = listId;
 		if (!id) return;
 		void getMeta(sortModeMetaKey(id)).then((stored) => {
-			if (listId === id) sortMode = coerceSortMode(stored);
+			if (listId === id) localSortMode = stored;
 		});
 	});
+	let sortMode = $derived(effectiveSortMode(list?.sort_mode, localSortMode));
 
 	function setSortMode(mode: SortMode): void {
-		sortMode = mode;
+		// Optimistic replica apply flips `sortMode` instantly; the meta write
+		// keeps this device's fallback cache in step for server-null Lists.
+		localSortMode = mode;
 		void setMeta(sortModeMetaKey(listId), mode);
+		void setListSortMode(listId, mode);
 	}
 
 	let sections = $derived(

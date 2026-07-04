@@ -1,9 +1,12 @@
 /**
- * Touch e2e for the List screen's per-List sorting (contract delta v1.3):
+ * Touch e2e for the List screen's per-List sorting (contract deltas v1.3/v1.4):
  *
  *  - the "…" menu's Sort By picker switches Custom / Priority / Due Date, the
- *    open section re-sorts, and the choice persists per device (IndexedDB
- *    meta) across a reload;
+ *    open section re-sorts, every change emits a `list_set_sort_mode` op on
+ *    the wire, and the mode persists across a reload FROM THE SERVER payload
+ *    (the stateful stub applies the op to the List it serves — v1.4);
+ *  - a server-synced mode beats a stale device-local IndexedDB meta, and a
+ *    null server value falls back to that meta WITHOUT auto-pushing it;
  *  - in Custom mode a long-press lifts a task row and a drag two slots down
  *    emits EXACTLY the one midpoint `task_update` op — and the new order
  *    survives a reload;
@@ -12,8 +15,9 @@
  *
  * Gestures go through CDP `Input.dispatchTouchEvent` — the browser's real
  * input pipeline — exactly like home-touch.spec.ts. `/api` is stubbed
- * statefully: applied `sort_order` updates mutate the tasks the sync
- * endpoint serves, so a reload sees what the "server" now holds.
+ * statefully: applied `sort_order` updates and `list_set_sort_mode` ops
+ * mutate what the sync endpoint serves, so a reload sees what the "server"
+ * now holds.
  */
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
 
@@ -32,14 +36,26 @@ interface StubTask {
 	deleted: boolean;
 }
 
-interface UpdateOp {
-	op_id: string;
-	kind: string;
-	uid: string;
-	sort_order?: number | null;
+interface StubList {
+	id: string;
+	name: string;
+	order: number;
+	sort_mode: string | null;
+	deleted: boolean;
 }
 
-const LIST = { id: 'l-a', name: 'Alpha', order: 0, deleted: false };
+interface CapturedOp {
+	op_id: string;
+	kind: string;
+	uid?: string;
+	list_id?: string;
+	sort_order?: number | null;
+	sort_mode?: string;
+}
+
+const CUSTOM_ORDER = ['Apples', 'Bananas', 'Carrots', 'Dates'];
+const PRIORITY_ORDER = ['Bananas', 'Carrots', 'Dates', 'Apples'];
+const DUE_ORDER = ['Dates', 'Carrots', 'Apples', 'Bananas'];
 
 function seedTasks(): StubTask[] {
 	const base = {
@@ -62,31 +78,92 @@ function seedTasks(): StubTask[] {
 	];
 }
 
-/** Stub /api statefully and land on the List screen. */
-async function bootList(page: Page): Promise<{ ops: UpdateOp[]; tasks: StubTask[] }> {
+/**
+ * Stub /api statefully and land on the List screen. `serverSortMode` is what
+ * the "server" holds for the List (v1.4); `initialTitles` doubles as the
+ * app-ready wait and pins which mode actually renders.
+ */
+async function bootList(
+	page: Page,
+	serverSortMode: string | null = null,
+	initialTitles: string[] = CUSTOM_ORDER
+): Promise<{ ops: CapturedOp[]; tasks: StubTask[]; list: StubList }> {
 	const tasks = seedTasks();
-	const ops: UpdateOp[] = [];
+	const list: StubList = {
+		id: 'l-a',
+		name: 'Alpha',
+		order: 0,
+		sort_mode: serverSortMode,
+		deleted: false
+	};
+	const ops: CapturedOp[] = [];
 	await page.route('**/api/me', (route) =>
 		route.fulfill({ json: { username: 'e2e', connected: true } })
 	);
 	await page.route('**/api/sync**', (route) =>
-		route.fulfill({ json: { cursor: 'e2e-cursor', full: true, lists: [LIST], tasks } })
+		route.fulfill({ json: { cursor: 'e2e-cursor', full: true, lists: [list], tasks } })
 	);
 	await page.route('**/api/ops', async (route) => {
-		const body = route.request().postDataJSON() as { ops: UpdateOp[] };
+		const body = route.request().postDataJSON() as { ops: CapturedOp[] };
 		ops.push(...body.ops);
 		for (const op of body.ops) {
-			if (op.kind !== 'task_update') continue;
-			const t = tasks.find((x) => x.uid === op.uid);
-			if (t && op.sort_order !== undefined) t.sort_order = op.sort_order;
+			if (op.kind === 'task_update') {
+				const t = tasks.find((x) => x.uid === op.uid);
+				if (t && op.sort_order !== undefined) t.sort_order = op.sort_order;
+			}
+			// The mode op mutates the List the sync endpoint serves — a reload
+			// then restores the mode from the SERVER payload (v1.4 §1).
+			if (op.kind === 'list_set_sort_mode' && op.sort_mode !== undefined) {
+				list.sort_mode = op.sort_mode;
+			}
 		}
 		await route.fulfill({
 			json: { results: body.ops.map((o) => ({ op_id: o.op_id, status: 'applied', error: null })) }
 		});
 	});
 	await page.goto('/list/l-a');
-	await expect(titles(page)).toHaveText(['Apples', 'Bananas', 'Carrots', 'Dates']);
-	return { ops, tasks };
+	await expect(titles(page)).toHaveText(initialTitles);
+	return { ops, tasks, list };
+}
+
+/**
+ * Write the pre-v0.5 device-local mode meta (`sort_mode:<listId>`) into
+ * IndexedDB from a blank same-origin page BEFORE the app ever runs — exactly
+ * the leftover an older build would have. The schema must mirror db.ts
+ * DB_NAME='tasks' / DB_VERSION=2, or the app's own open would miss stores.
+ */
+async function seedDeviceLocalSortMode(page: Page, listId: string, mode: string): Promise<void> {
+	await page.route('**/__seed', (route) =>
+		route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>seed</title>' })
+	);
+	await page.goto('/__seed');
+	await page.evaluate(
+		async ({ key, value }) => {
+			await new Promise<void>((resolve, reject) => {
+				const openReq = indexedDB.open('tasks', 2);
+				openReq.onupgradeneeded = () => {
+					const d = openReq.result;
+					d.createObjectStore('lists', { keyPath: 'id' });
+					d.createObjectStore('tasks', { keyPath: 'uid' }).createIndex('by-list', 'list_id');
+					d.createObjectStore('meta', { keyPath: 'key' });
+					d.createObjectStore('op_queue', { keyPath: 'seq', autoIncrement: true });
+					d.createObjectStore('dead_ops', { keyPath: 'seq', autoIncrement: true });
+				};
+				openReq.onsuccess = () => {
+					const d = openReq.result;
+					const tx = d.transaction('meta', 'readwrite');
+					tx.objectStore('meta').put({ key, value });
+					tx.oncomplete = () => {
+						d.close();
+						resolve();
+					};
+					tx.onerror = () => reject(tx.error ?? new Error('meta seed failed'));
+				};
+				openReq.onerror = () => reject(openReq.error ?? new Error('idb open failed'));
+			});
+		},
+		{ key: `sort_mode:${listId}`, value: mode }
+	);
 }
 
 function titles(page: Page) {
@@ -116,13 +193,23 @@ async function pickSortMode(page: Page, current: string, next: string): Promise<
 	await page.getByRole('menuitemradio', { name: next }).click();
 }
 
-test('Sort By switches Priority → Due Date → Custom, ✓ tracks it, mode persists across reload', async ({
+test('Sort By switches Priority → Due Date → Custom, ✓ tracks it, each change hits the wire, the SERVER payload restores it after reload', async ({
 	page
 }) => {
-	await bootList(page);
+	const { ops, list } = await bootList(page);
 
 	await pickSortMode(page, 'Custom', 'Priority');
-	await expect(titles(page)).toHaveText(['Bananas', 'Carrots', 'Dates', 'Apples']);
+	await expect(titles(page)).toHaveText(PRIORITY_ORDER);
+
+	// The change traveled as ONE list_set_sort_mode op carrying exactly the
+	// contract's fields (v1.4 §2), and the stateful stub's List now holds it.
+	await expect
+		.poll(() => ops.filter((o) => o.kind === 'list_set_sort_mode').length, { timeout: 5000 })
+		.toBe(1);
+	const modeOp = ops.find((o) => o.kind === 'list_set_sort_mode');
+	expect(modeOp).toMatchObject({ list_id: 'l-a', sort_mode: 'priority' });
+	expect(Object.keys(modeOp as object).sort()).toEqual(['kind', 'list_id', 'op_id', 'sort_mode']);
+	expect(list.sort_mode).toBe('priority');
 
 	// The menu reflects the change: label carries the mode, ✓ sits on it.
 	await page.getByRole('button', { name: 'List options' }).click();
@@ -136,14 +223,49 @@ test('Sort By switches Priority → Due Date → Custom, ✓ tracks it, mode per
 		'false'
 	);
 	await page.getByRole('menuitemradio', { name: 'Due Date' }).click();
-	await expect(titles(page)).toHaveText(['Dates', 'Carrots', 'Apples', 'Bananas']);
+	await expect(titles(page)).toHaveText(DUE_ORDER);
+	await expect
+		.poll(() => ops.filter((o) => o.kind === 'list_set_sort_mode').length, { timeout: 5000 })
+		.toBe(2);
+	expect(list.sort_mode).toBe('due');
 
-	// Device-local persistence (IndexedDB meta): the mode survives a reload.
+	// Shared persistence (v1.4): the reload rebuilds from the SERVER payload,
+	// which now carries the mode — exactly what every other household device
+	// receives on its next sync cycle.
 	await page.reload();
-	await expect(titles(page)).toHaveText(['Dates', 'Carrots', 'Apples', 'Bananas']);
+	await expect(titles(page)).toHaveText(DUE_ORDER);
 
 	await pickSortMode(page, 'Due Date', 'Custom');
-	await expect(titles(page)).toHaveText(['Apples', 'Bananas', 'Carrots', 'Dates']);
+	await expect(titles(page)).toHaveText(CUSTOM_ORDER);
+});
+
+test('a server-synced mode beats a stale device-local one (v1.4: server wins)', async ({
+	page
+}) => {
+	// An old build on this device left meta saying Due Date; the household has
+	// since set Priority (server value present) — the server must win.
+	await seedDeviceLocalSortMode(page, 'l-a', 'due');
+	await bootList(page, 'priority', PRIORITY_ORDER);
+
+	// The picker's ✓ agrees with what rendered.
+	await page.getByRole('button', { name: 'List options' }).click();
+	await page.getByRole('button', { name: 'Sort By: Priority' }).click();
+	await expect(page.getByRole('menuitemradio', { name: 'Priority' })).toHaveAttribute(
+		'aria-checked',
+		'true'
+	);
+});
+
+test('a null server mode falls back to the device-local meta and is never auto-pushed', async ({
+	page
+}) => {
+	await seedDeviceLocalSortMode(page, 'l-a', 'due');
+	const { ops } = await bootList(page, null, DUE_ORDER);
+
+	// The fallback renders, but nothing goes to the wire by itself — only a
+	// user-initiated picker change lands the mode server-side (v1.4 §3).
+	await page.waitForTimeout(400);
+	expect(ops.filter((o) => o.kind === 'list_set_sort_mode')).toHaveLength(0);
 });
 
 test('Custom mode: long-press-drag two slots emits exactly the midpoint op and survives reload', async ({

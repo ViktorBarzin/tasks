@@ -20,7 +20,7 @@ import {
 const NOW = new Date(2026, 6, 3, 10, 30, 0); // Fri 2026-07-03
 
 function list(id: string, name: string, order: number | null = null): TaskList {
-	return { id, name, order, deleted: false };
+	return { id, name, order, sort_mode: null, deleted: false };
 }
 
 let n = 0;

@@ -18,9 +18,9 @@
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
 
 const LISTS = [
-	{ id: 'l-a', name: 'Alpha', order: 0, deleted: false },
-	{ id: 'l-b', name: 'Bravo', order: 1, deleted: false },
-	{ id: 'l-c', name: 'Charlie', order: 2, deleted: false }
+	{ id: 'l-a', name: 'Alpha', order: 0, sort_mode: null, deleted: false },
+	{ id: 'l-b', name: 'Bravo', order: 1, sort_mode: null, deleted: false },
+	{ id: 'l-c', name: 'Charlie', order: 2, sort_mode: null, deleted: false }
 ];
 
 interface ReorderOp {

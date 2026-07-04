@@ -20,7 +20,7 @@ import {
 import type { Op, OpResult, SyncPayload, Task, TaskList } from './types';
 
 function list(id: string, name = id, order: number | null = null): TaskList {
-	return { id, name, order, deleted: false };
+	return { id, name, order, sort_mode: null, deleted: false };
 }
 
 function task(uid: string, list_id = 'l1', extra: Partial<Task> = {}): Task {

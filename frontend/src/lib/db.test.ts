@@ -6,8 +6,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as db from './db';
 import type { Op, SyncPayload, Task, TaskList } from './types';
 
-function list(id: string, name = id, deleted = false, order: number | null = null): TaskList {
-	return { id, name, order, deleted };
+function list(
+	id: string,
+	name = id,
+	deleted = false,
+	order: number | null = null,
+	sort_mode: TaskList['sort_mode'] = null
+): TaskList {
+	return { id, name, order, sort_mode, deleted };
 }
 
 function task(uid: string, list_id = 'l1', extra: Partial<Task> = {}): Task {
@@ -97,6 +103,26 @@ describe('replica storage', () => {
 		expect(replica.lists.get('l2')?.name).toBe('New');
 		expect(replica.lists.has('l1')).toBe(true);
 		expect(await db.getCursor()).toBe('c2');
+	});
+
+	it('folds the server sort_mode with the List and clears it back to null (v1.4)', async () => {
+		// Lists ship whole in every response, so the fold needs no special
+		// handling: the server's mode (or its null) always lands in the row.
+		await db.applySyncPayload({
+			cursor: 'c1',
+			full: true,
+			lists: [list('l1', 'l1', false, null, 'priority')],
+			tasks: []
+		});
+		expect((await db.readReplica()).lists.get('l1')?.sort_mode).toBe('priority');
+
+		await db.applySyncPayload({
+			cursor: 'c2',
+			full: false,
+			lists: [list('l1', 'l1', false, null, null)],
+			tasks: []
+		});
+		expect((await db.readReplica()).lists.get('l1')?.sort_mode).toBeNull();
 	});
 
 	it('a full snapshot drops deleted entities instead of storing them', async () => {

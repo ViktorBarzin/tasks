@@ -6,6 +6,7 @@ import {
 	compareCustom,
 	compareDueDate,
 	comparePriority,
+	effectiveSortMode,
 	nextSortOrder,
 	planTaskReorder,
 	SORT_GAP,
@@ -58,6 +59,30 @@ describe('sort mode plumbing', () => {
 		expect(comparatorFor('custom')).toBe(compareCustom);
 		expect(comparatorFor('priority')).toBe(comparePriority);
 		expect(comparatorFor('due')).toBe(compareDueDate);
+	});
+});
+
+describe('effectiveSortMode (contract v1.4 §3)', () => {
+	it('a server value always wins, even over a differing device-local one', () => {
+		expect(effectiveSortMode('priority', 'due')).toBe('priority');
+		expect(effectiveSortMode('due', undefined)).toBe('due');
+		expect(effectiveSortMode('custom', 'nonsense')).toBe('custom');
+	});
+
+	it('a null server value falls back to the coerced device-local meta', () => {
+		expect(effectiveSortMode(null, 'due')).toBe('due');
+		expect(effectiveSortMode(null, 'priority')).toBe('priority');
+	});
+
+	it('defaults to custom when both are unset or the local meta is garbage', () => {
+		expect(effectiveSortMode(null, undefined)).toBe('custom');
+		expect(effectiveSortMode(null, 'nonsense')).toBe('custom');
+		expect(effectiveSortMode(null, 42)).toBe('custom');
+	});
+
+	it('treats an undefined server value (pre-v0.5 Replica row) exactly like null', () => {
+		expect(effectiveSortMode(undefined, 'due')).toBe('due');
+		expect(effectiveSortMode(undefined, undefined)).toBe('custom');
 	});
 });
 

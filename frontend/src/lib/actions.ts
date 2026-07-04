@@ -8,7 +8,7 @@ import { get, writable } from 'svelte/store';
 import { recordOp, replica } from './replica';
 import { nextSortOrder, type TaskOrderChange } from './sort';
 import { syncNow } from './sync';
-import type { Priority, TaskFields } from './types';
+import type { Priority, SortMode, TaskFields } from './types';
 
 /** How long a completed Task stays visible in open-only views (ms). */
 export const COMPLETE_GRACE_MS = 1800;
@@ -148,6 +148,21 @@ export async function reorderTasks(changes: TaskOrderChange[]): Promise<void> {
 	for (const { uid, sort_order } of changes) {
 		await recordOp({ op_id: uuid(), kind: 'task_update', uid, sort_order });
 	}
+	kick();
+}
+
+/**
+ * Set a List's SHARED sort mode (contract delta v1.4): one idempotent
+ * `list_set_sort_mode` op — durable queue + optimistic Replica apply — so the
+ * whole household's devices pick it up on their next sync cycle.
+ */
+export async function setListSortMode(listId: string, sortMode: SortMode): Promise<void> {
+	await recordOp({
+		op_id: uuid(),
+		kind: 'list_set_sort_mode',
+		list_id: listId,
+		sort_mode: sortMode
+	});
 	kick();
 }
 
