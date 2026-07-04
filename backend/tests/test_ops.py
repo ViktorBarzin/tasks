@@ -652,6 +652,72 @@ def test_list_reorder_without_order_errors(onboarded_client: TestClient) -> None
     assert "order" in results[0]["error"]
 
 
+# -- list_set_sort_mode (contract delta v1.4 §2) -------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["custom", "priority", "due"])
+def test_list_set_sort_mode_applied_and_visible_in_sync(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud, mode: str
+) -> None:
+    results = post_ops(
+        onboarded_client, op("list_set_sort_mode", "m1", list_id="work", sort_mode=mode)
+    )
+    assert results == [{"op_id": "m1", "status": "applied", "error": None}]
+    # PROPPATCHed the custom dead property on the collection itself.
+    assert fake_nc.calendars[NC_USER]["work"].sort_mode == mode
+    assert ("PROPPATCH", "/remote.php/dav/calendars/viktor-nc/work/") in fake_nc.requests
+    lists = {li["id"]: li for li in sync(onboarded_client)["lists"]}
+    assert lists["work"]["sort_mode"] == mode
+    assert lists["personal"]["sort_mode"] is None  # untouched Lists stay unset
+
+
+def test_list_set_sort_mode_replay_is_duplicate(onboarded_client: TestClient) -> None:
+    set_mode = op("list_set_sort_mode", "m1", list_id="work", sort_mode="due")
+    assert post_ops(onboarded_client, set_mode)[0]["status"] == "applied"
+    assert post_ops(onboarded_client, set_mode)[0]["status"] == "duplicate"
+
+
+def test_list_set_sort_mode_same_value_new_op_id_is_a_noop_apply(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # Idempotent by nature: re-setting the same mode (journal lost) is a no-op.
+    post_ops(onboarded_client, op("list_set_sort_mode", "m1", list_id="work", sort_mode="due"))
+    results = post_ops(
+        onboarded_client, op("list_set_sort_mode", "m2", list_id="work", sort_mode="due")
+    )
+    assert results[0]["status"] == "applied"
+    assert fake_nc.calendars[NC_USER]["work"].sort_mode == "due"
+
+
+def test_list_set_sort_mode_missing_list_errors(onboarded_client: TestClient) -> None:
+    results = post_ops(
+        onboarded_client, op("list_set_sort_mode", "m1", list_id="nope", sort_mode="due")
+    )
+    assert results[0]["status"] == "error"
+    assert "nope" in results[0]["error"]
+
+
+@pytest.mark.parametrize("bad_mode", [None, 42, True, "alphabetical", "", "Priority"])
+def test_list_set_sort_mode_invalid_value_errors_batch_continues(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud, bad_mode: object
+) -> None:
+    # Contract v1.4 §2: an invalid value is a per-op error; the batch continues.
+    results = post_ops(
+        onboarded_client,
+        op("list_set_sort_mode", "m1", list_id="work", sort_mode=bad_mode),
+        op("list_set_sort_mode", "m2", list_id="work", sort_mode="priority"),
+    )
+    assert [r["status"] for r in results] == ["error", "applied"]
+    assert "sort_mode" in results[0]["error"]
+    assert fake_nc.calendars[NC_USER]["work"].sort_mode == "priority"
+
+
+def test_list_set_sort_mode_without_value_errors(onboarded_client: TestClient) -> None:
+    results = post_ops(onboarded_client, op("list_set_sort_mode", "m1", list_id="work"))
+    assert results[0]["status"] == "error"
+    assert "sort_mode" in results[0]["error"]
+
+
 def test_list_delete_and_tombstone(
     onboarded_client: TestClient, fake_nc: FakeNextcloud
 ) -> None:

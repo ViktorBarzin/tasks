@@ -19,6 +19,7 @@ OpKind = Literal[
     "list_create",
     "list_rename",
     "list_reorder",
+    "list_set_sort_mode",
     "list_delete",
 ]
 
@@ -29,6 +30,11 @@ OpStatus = Literal["applied", "lww_reapplied", "duplicate", "retry", "error"]
 
 # RFC 5545 PRIORITY, Apple mapping: 0=None, 9=Low, 5=Medium, 1=High (CONTEXT.md).
 Priority = Literal[0, 1, 5, 9]
+
+# The three shared per-List sort modes (contract delta v1.4). On the wire
+# ``None`` means "server has no stored preference" — the client falls back to
+# its device-local choice, defaulting to custom.
+SortMode = Literal["custom", "priority", "due"]
 
 
 class MeResponse(BaseModel):
@@ -54,6 +60,11 @@ class TaskList(BaseModel):
     # property; ``None`` when unset (clients sort those after ordered Lists,
     # then by name). Contract delta v1.2 §1.
     order: int | None
+    # Shared per-List sort mode from the collection's
+    # ``{urn:viktorbarzin:tasks}sort-mode`` dead property; ``None`` when
+    # unset/unrecognized (clients fall back to their device-local choice).
+    # Contract delta v1.4 §1.
+    sort_mode: SortMode | None
     deleted: bool
 
 

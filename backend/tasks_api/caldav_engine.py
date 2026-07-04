@@ -18,7 +18,7 @@ Hrefs returned by the server are used verbatim; engine-relative paths (e.g.
 import logging
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -32,7 +32,17 @@ CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
 #: Apple's calendar-extension namespace — Nextcloud/sabre store the List
 #: ordering clients agreed on as ``calendar-order`` in it.
 APPLE_NS = "http://apple.com/ns/ical/"
-_NS = {"d": DAV_NS, "c": CALDAV_NS, "a": APPLE_NS}
+#: This app's own namespace for custom dead properties on collections —
+#: the shared per-List sort MODE lives here as ``sort-mode`` (contract v1.4;
+#: probed live against Nextcloud/sabre, see 2026-07-06-v0.5-contract-delta.md).
+TASKS_NS = "urn:viktorbarzin:tasks"
+_NS = {"d": DAV_NS, "c": CALDAV_NS, "a": APPLE_NS, "vb": TASKS_NS}
+
+#: The three shared sort modes the ``sort-mode`` property may hold; anything
+#: else read back (a foreign client's write) is treated as unset.
+SortModeValue = Literal["custom", "priority", "due"]
+_SORT_MODE_VALUES: tuple[SortModeValue, ...] = ("custom", "priority", "due")
+SORT_MODES: frozenset[str] = frozenset(_SORT_MODE_VALUES)
 
 
 class CalDAVError(Exception):
@@ -76,6 +86,9 @@ class ListInfo:
     name: str
     #: Apple ``calendar-order`` value; ``None`` when unset/unparseable.
     order: int | None = None
+    #: Shared sort mode from this app's ``sort-mode`` dead property;
+    #: ``None`` when unset/unrecognized (contract v1.4).
+    sort_mode: SortModeValue | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +120,16 @@ def _parse_order(raw: str) -> int | None:
         return int(raw.strip())
     except ValueError:
         return None
+
+
+def _parse_sort_mode(raw: str) -> SortModeValue | None:
+    """A ``sort-mode`` value — ``None`` when absent/empty/not one of the three
+    modes, so a foreign write can never poison clients (contract v1.4 §1)."""
+    value = raw.strip()
+    for mode in _SORT_MODE_VALUES:
+        if value == mode:
+            return mode
+    return None
 
 
 class CalDAVEngine:
@@ -236,8 +259,8 @@ class CalDAVEngine:
         body = (
             '<?xml version="1.0" encoding="utf-8"?>'
             '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"'
-            f' xmlns:a="{APPLE_NS}">'
-            "<d:prop><d:resourcetype/><d:displayname/><a:calendar-order/>"
+            f' xmlns:a="{APPLE_NS}" xmlns:vb="{TASKS_NS}">'
+            "<d:prop><d:resourcetype/><d:displayname/><a:calendar-order/><vb:sort-mode/>"
             "<c:supported-calendar-component-set/></d:prop></d:propfind>"
         ).encode()
         response = await self._request(
@@ -267,7 +290,15 @@ class CalDAVEngine:
             order = _parse_order(
                 _text(resp.find(".//d:propstat/d:prop/a:calendar-order", _NS))
             )
-            lists.append(ListInfo(id=list_id, href=href, name=name or list_id, order=order))
+            sort_mode = _parse_sort_mode(
+                _text(resp.find(".//d:propstat/d:prop/vb:sort-mode", _NS))
+            )
+            lists.append(
+                ListInfo(
+                    id=list_id, href=href, name=name or list_id, order=order,
+                    sort_mode=sort_mode,
+                )
+            )
         return sorted(lists, key=lambda li: li.id)
 
     async def create_list(self, list_id: str, name: str) -> None:
@@ -293,10 +324,11 @@ class CalDAVEngine:
             raise CalDAVError(f"MKCALENDAR {list_id!r} failed: HTTP {response.status_code}")
 
     async def _proppatch_list(self, list_id: str, prop_xml: str) -> None:
-        """PROPPATCH one collection property; shared by rename + reorder."""
+        """PROPPATCH one collection property; shared by rename + reorder + sort mode."""
         body = (
             '<?xml version="1.0" encoding="utf-8"?>'
-            f'<d:propertyupdate xmlns:d="DAV:" xmlns:a="{APPLE_NS}"><d:set><d:prop>'
+            f'<d:propertyupdate xmlns:d="DAV:" xmlns:a="{APPLE_NS}" xmlns:vb="{TASKS_NS}">'
+            "<d:set><d:prop>"
             f"{prop_xml}"
             "</d:prop></d:set></d:propertyupdate>"
         ).encode()
@@ -321,6 +353,17 @@ class CalDAVEngine:
     async def set_list_order(self, list_id: str, order: int) -> None:
         """PROPPATCH the Apple ``calendar-order`` (Home List ordering, v1.2)."""
         await self._proppatch_list(list_id, f"<a:calendar-order>{order:d}</a:calendar-order>")
+
+    async def set_list_sort_mode(self, list_id: str, sort_mode: str) -> None:
+        """PROPPATCH this app's ``sort-mode`` dead property (contract v1.4).
+
+        Callers (the ops router) validate the value; the guard here is a
+        safety net so the engine can never write a value it would refuse to
+        read back.
+        """
+        if sort_mode not in SORT_MODES:
+            raise ValueError(f"invalid sort_mode {sort_mode!r}")
+        await self._proppatch_list(list_id, f"<vb:sort-mode>{escape(sort_mode)}</vb:sort-mode>")
 
     async def delete_list(self, list_id: str) -> None:
         """DELETE the collection (Nextcloud keeps it in the calendar trashbin)."""

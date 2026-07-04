@@ -112,6 +112,50 @@ def test_list_order_ships_in_snapshot_and_delta(
     }
 
 
+def test_full_snapshot_list_fields_match_contract(onboarded_client: TestClient) -> None:
+    # The exact TaskList key-set on the wire (contract delta v1.4 §1).
+    payload = sync(onboarded_client)
+    for li in payload["lists"]:
+        assert set(li) == {"id", "name", "order", "sort_mode", "deleted"}
+
+
+def test_list_sort_mode_ships_in_snapshot_and_delta(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # The custom {urn:viktorbarzin:tasks}sort-mode dead property, read by the
+    # same home PROPFIND → TaskList.sort_mode; unset (404 propstat) → null
+    # (contract delta v1.4 §1).
+    fake_nc.calendars[NC_USER]["work"].sort_mode = "priority"
+    payload = sync(onboarded_client)
+    assert {(li["id"], li["sort_mode"]) for li in payload["lists"]} == {
+        ("personal", None),
+        ("work", "priority"),
+    }
+    # Lists ship whole in every response, so a mode change (made on another
+    # device) propagates through a delta without any sync-token involvement.
+    fake_nc.calendars[NC_USER]["work"].sort_mode = "due"
+    fake_nc.calendars[NC_USER]["personal"].sort_mode = "custom"
+    delta = sync(onboarded_client, cursor=payload["cursor"])
+    assert delta["full"] is False
+    assert {(li["id"], li["sort_mode"]) for li in delta["lists"]} == {
+        ("personal", "custom"),
+        ("work", "due"),
+    }
+
+
+def test_list_sort_mode_foreign_value_reads_as_unset(
+    onboarded_client: TestClient, fake_nc: FakeNextcloud
+) -> None:
+    # A dead property another client scribbled on: not one of the three modes
+    # ⇒ null on the wire, never echoed (contract delta v1.4 §0/§1).
+    fake_nc.calendars[NC_USER]["work"].sort_mode = "alphabetical"
+    payload = sync(onboarded_client)
+    assert {(li["id"], li["sort_mode"]) for li in payload["lists"]} == {
+        ("personal", None),
+        ("work", None),
+    }
+
+
 # -- delta -----------------------------------------------------------------------
 
 
@@ -237,6 +281,9 @@ def test_deleted_list_ships_a_list_tombstone(
     assert payload["full"] is False
     assert ("work", True) in {(li["id"], li["deleted"]) for li in payload["lists"]}
     assert ("personal", False) in {(li["id"], li["deleted"]) for li in payload["lists"]}
+    # Tombstones carry the contract's null sort_mode (v1.4 §1).
+    tombstone = next(li for li in payload["lists"] if li["deleted"])
+    assert tombstone["sort_mode"] is None
 
 
 def test_expired_sync_token_escalates_to_full_snapshot(

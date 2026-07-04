@@ -27,6 +27,9 @@ Kind-specific Op fields (the client sends exactly these):
 - ``list_rename``: ``list_id``, ``name``
 - ``list_reorder``: ``list_id``, ``order`` (int → PROPPATCH ``calendar-order``,
   contract v1.2)
+- ``list_set_sort_mode``: ``list_id``, ``sort_mode``
+  (``custom`` | ``priority`` | ``due`` → PROPPATCH the
+  ``{urn:viktorbarzin:tasks}sort-mode`` dead property, contract v1.4)
 - ``list_delete``: ``list_id``
 """
 
@@ -58,7 +61,7 @@ from tasks_api.deps import engine_for_account, get_session
 from tasks_api.ics_mapper import MapperError
 from tasks_api.models import AppliedOp
 from tasks_api.recurrence import RecurrenceError
-from tasks_api.schemas import Op, OpKind, OpResult, OpsRequest, OpsResponse
+from tasks_api.schemas import Op, OpKind, OpResult, OpsRequest, OpsResponse, SortMode
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,8 @@ _MAX_ETAG_RETRIES = 3
 _LIST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 #: The kinds the batch will attempt; anything else is a per-op ``error`` (B).
 _VALID_KINDS: Final[frozenset[str]] = frozenset(get_args(OpKind))
+#: The values ``list_set_sort_mode`` accepts; anything else is a per-op error.
+_VALID_SORT_MODES: Final[frozenset[str]] = frozenset(get_args(SortMode))
 
 ApplyStatus = Literal["applied", "lww_reapplied", "duplicate"]
 
@@ -355,6 +360,28 @@ async def _list_reorder(engine: CalDAVEngine, lists: _ListCache, op: Op) -> Appl
     return "applied"
 
 
+async def _list_set_sort_mode(
+    engine: CalDAVEngine, lists: _ListCache, op: Op
+) -> ApplyStatus:
+    """PROPPATCH this app's ``sort-mode`` dead property (contract v1.4).
+
+    Idempotent exactly like ``list_reorder``: the journal absorbs op_id
+    replays, and re-setting the same value is a no-op ``applied``.
+    """
+    list_id = _require_list_id(op)
+    raw = _extras(op).get("sort_mode")
+    if not isinstance(raw, str) or raw not in _VALID_SORT_MODES:
+        raise OpError(
+            f"{op.kind} requires sort_mode of {sorted(_VALID_SORT_MODES)}, got {raw!r}"
+        )
+    lists.invalidate()
+    try:
+        await engine.set_list_sort_mode(list_id, raw)
+    except CalDAVNotFound as exc:
+        raise OpError(f"list {list_id!r} not found") from exc
+    return "applied"
+
+
 async def _list_delete(engine: CalDAVEngine, lists: _ListCache, op: Op) -> ApplyStatus:
     list_id = _require_list_id(op)
     lists.invalidate()
@@ -378,6 +405,7 @@ async def _apply_op(
         "list_create": lambda: _list_create(engine, lists, op),
         "list_rename": lambda: _list_rename(engine, lists, op),
         "list_reorder": lambda: _list_reorder(engine, lists, op),
+        "list_set_sort_mode": lambda: _list_set_sort_mode(engine, lists, op),
         "list_delete": lambda: _list_delete(engine, lists, op),
     }
     return await handlers[op.kind]()

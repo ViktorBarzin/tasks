@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _list_entry(li: ListInfo) -> TaskList:
+    """The wire shape of a live List — carries the shared ``sort_mode`` too
+    (contract v1.4 §1); Lists ship whole in every response."""
+    return TaskList(
+        id=li.id, name=li.name, order=li.order, sort_mode=li.sort_mode, deleted=False
+    )
+
+
 def _task_from_state(state: ObjectState, list_id: str) -> Task | None:
     try:
         parsed = ics_mapper.parse_task(state.ics)
@@ -108,7 +116,7 @@ async def _full_snapshot(engine: CalDAVEngine, lists: list[ListInfo]) -> SyncRes
     return SyncResponse(
         cursor=cursor_codec.encode_cursor(tokens, href_uids),
         full=True,
-        lists=[TaskList(id=li.id, name=li.name, order=li.order, deleted=False) for li in lists],
+        lists=[_list_entry(li) for li in lists],
         tasks=tasks,
     )
 
@@ -122,9 +130,7 @@ async def _delta(
     tokens: dict[str, str] = {}
     tasks: list[Task] = []
     href_uids: dict[str, str] = dict(old_index)  # carry the index forward
-    list_entries = [
-        TaskList(id=li.id, name=li.name, order=li.order, deleted=False) for li in lists
-    ]
+    list_entries = [_list_entry(li) for li in lists]
     for info in lists:
         old_token = old_tokens.get(info.id)
         if old_token is None:
@@ -148,7 +154,7 @@ async def _delta(
             tasks.append(_tombstone(uid, info.id))
     current_ids = {li.id for li in lists}
     list_entries.extend(
-        TaskList(id=gone, name="", order=None, deleted=True)
+        TaskList(id=gone, name="", order=None, sort_mode=None, deleted=True)
         for gone in sorted(set(old_tokens) - current_ids)
     )
     return SyncResponse(
