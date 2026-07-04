@@ -30,6 +30,11 @@ export interface Task {
 	due: string | null;
 	due_has_time: boolean;
 	priority: Priority;
+	/**
+	 * Custom-mode position from the VTODO's `X-APPLE-SORT-ORDER` (signed int);
+	 * `null` when unset — the custom sort puts those last (contract delta v1.3).
+	 */
+	sort_order: number | null;
 	completed: boolean;
 	completed_at: string | null;
 	recurring: boolean;
@@ -70,6 +75,9 @@ export interface TaskFields {
 	due: string | null;
 	due_has_time: boolean;
 	priority: Priority;
+	/** Custom-mode position; `task_update` with it is how a reorder travels —
+	 * no dedicated op kind (contract delta v1.3 §2). `null` clears it. */
+	sort_order: number | null;
 }
 
 interface OpBase {

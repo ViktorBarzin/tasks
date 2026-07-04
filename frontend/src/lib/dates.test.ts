@@ -23,6 +23,7 @@ function task(due: string | null, due_has_time = false): Task {
 		due,
 		due_has_time,
 		priority: 0,
+		sort_order: null,
 		completed: false,
 		completed_at: null,
 		recurring: false,

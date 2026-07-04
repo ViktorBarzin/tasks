@@ -1,10 +1,12 @@
 <script lang="ts">
-	/** iOS action sheet — used for the per-list "…" menu. */
+	/** iOS action sheet — used for the per-list "…" menu and its Sort By picker. */
 	import { fade, fly } from 'svelte/transition';
 
 	export interface MenuAction {
 		label: string;
 		danger?: boolean;
+		/** Radio-style rows (Sort By): ✓ marks the current choice. */
+		checked?: boolean;
 		action: () => void;
 	}
 
@@ -29,7 +31,18 @@
 			<div class="group">
 				{#if title}<div class="sheet-title">{title}</div>{/if}
 				{#each actions as a (a.label)}
-					<button class="item" class:danger={a.danger} onclick={() => run(a)}>{a.label}</button>
+					<button
+						class="item"
+						class:danger={a.danger}
+						role={a.checked !== undefined ? 'menuitemradio' : undefined}
+						aria-checked={a.checked !== undefined ? a.checked : undefined}
+						onclick={() => run(a)}
+					>
+						{#if a.checked !== undefined}
+							<span class="tick" aria-hidden="true">{a.checked ? '✓' : ''}</span>
+						{/if}
+						{a.label}
+					</button>
 				{/each}
 			</div>
 			<div class="group">
@@ -91,6 +104,15 @@
 
 	.item:active {
 		background: var(--card-pressed);
+	}
+
+	/* Fixed-width slot so radio-style labels stay centered as a column. */
+	.tick {
+		display: inline-block;
+		width: 22px;
+		margin-left: -22px;
+		text-align: left;
+		font-weight: 600;
 	}
 
 	.item.danger {

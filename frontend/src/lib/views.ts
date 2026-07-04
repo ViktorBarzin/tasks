@@ -7,6 +7,7 @@
  */
 import { compareDue, dayKeyOf, formatDayHeading, isDueToday } from './dates';
 import type { ReplicaState } from './ops';
+import { comparatorFor, priorityRank, type SortMode } from './sort';
 import type { Task, TaskList } from './types';
 
 export interface ViewOptions {
@@ -20,20 +21,6 @@ export interface TaskGroup {
 	key: string;
 	heading: string;
 	tasks: Task[];
-}
-
-/** High(1) → Medium(5) → Low(9) → None(0). */
-function priorityRank(t: Task): number {
-	switch (t.priority) {
-		case 1:
-			return 0;
-		case 5:
-			return 1;
-		case 9:
-			return 2;
-		default:
-			return 3;
-	}
 }
 
 /** Standard row order: by due (no-due last), then priority, then title. */
@@ -141,6 +128,33 @@ export function buildListView(state: ReplicaState, listId: string, opts: ViewOpt
 	return allTasks(state)
 		.filter((t) => t.list_id === listId && visible(t, opts))
 		.sort(compareWithCompletion);
+}
+
+/** A List screen's two sections (contract delta v1.3 §3). */
+export interface ListSections {
+	/** Open Tasks in the List's chosen sort mode — the reorderable section. */
+	open: Task[];
+	/** Completed Tasks (incl. grace-period ones), in the standard order —
+	 * the sort mode never touches this section. */
+	done: Task[];
+}
+
+/**
+ * One List's Tasks split into open + completed sections, the open section
+ * ordered by the List's device-local sort mode. Pure view over the Replica:
+ * optimistic ops and sync folds re-sort naturally.
+ */
+export function buildListSections(
+	state: ReplicaState,
+	listId: string,
+	opts: ViewOptions,
+	mode: SortMode
+): ListSections {
+	const all = allTasks(state).filter((t) => t.list_id === listId && visible(t, opts));
+	return {
+		open: all.filter((t) => !t.completed).sort(comparatorFor(mode)),
+		done: all.filter((t) => t.completed).sort(compareTasks)
+	};
 }
 
 function matchesQuery(t: Task, q: string): boolean {

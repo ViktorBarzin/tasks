@@ -19,6 +19,7 @@ function task(uid: string, list_id = 'l1', extra: Partial<Task> = {}): Task {
 		due: null,
 		due_has_time: false,
 		priority: 0,
+		sort_order: null,
 		completed: false,
 		completed_at: null,
 		recurring: false,
@@ -37,7 +38,8 @@ function createOp(uid: string): Op {
 		notes: '',
 		due: null,
 		due_has_time: false,
-		priority: 0
+		priority: 0,
+		sort_order: null
 	};
 }
 

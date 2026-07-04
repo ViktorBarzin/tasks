@@ -28,6 +28,7 @@ export function applyOpToMaps(state: ReplicaState, op: Op): ReplicaState {
 					due: op.due,
 					due_has_time: op.due_has_time,
 					priority: op.priority,
+					sort_order: op.sort_order,
 					completed: false,
 					completed_at: null,
 					recurring: false,
@@ -45,7 +46,8 @@ export function applyOpToMaps(state: ReplicaState, op: Op): ReplicaState {
 					...(op.notes !== undefined ? { notes: op.notes } : {}),
 					...(op.due !== undefined ? { due: op.due } : {}),
 					...(op.due_has_time !== undefined ? { due_has_time: op.due_has_time } : {}),
-					...(op.priority !== undefined ? { priority: op.priority } : {})
+					...(op.priority !== undefined ? { priority: op.priority } : {}),
+					...(op.sort_order !== undefined ? { sort_order: op.sort_order } : {})
 				});
 			}
 			break;

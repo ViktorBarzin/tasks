@@ -6,6 +6,7 @@
 import { get, writable } from 'svelte/store';
 
 import { recordOp, replica } from './replica';
+import { nextSortOrder, type TaskOrderChange } from './sort';
 import { syncNow } from './sync';
 import type { Priority, TaskFields } from './types';
 
@@ -27,7 +28,16 @@ export interface NewTaskFields extends Partial<TaskFields> {
 	title: string;
 }
 
-/** Create a Task; returns its client-generated uid. */
+/** The Custom key a new Task in `listId` gets: bottom of the open section
+ * (max concrete key + gap — contract delta v1.3 §4). */
+function sortOrderForNewTask(listId: string): number {
+	const inList = [...get(replica).tasks.values()].filter((t) => t.list_id === listId);
+	return nextSortOrder(inList);
+}
+
+/** Create a Task; returns its client-generated uid. Unless the caller pins a
+ * `sort_order`, the Task lands at the bottom of the List's open section in
+ * Custom mode (a pure view — priority/due modes place it by their own keys). */
 export async function createTask(listId: string, fields: NewTaskFields): Promise<string> {
 	const uid = uuid();
 	await recordOp({
@@ -39,7 +49,8 @@ export async function createTask(listId: string, fields: NewTaskFields): Promise
 		notes: fields.notes ?? '',
 		due: fields.due ?? null,
 		due_has_time: fields.due_has_time ?? false,
-		priority: (fields.priority ?? 0) as Priority
+		priority: (fields.priority ?? 0) as Priority,
+		sort_order: fields.sort_order !== undefined ? fields.sort_order : sortOrderForNewTask(listId)
 	});
 	kick();
 	return uid;
@@ -123,6 +134,19 @@ export async function reorderLists(changes: { listId: string; order: number }[])
 	if (!changes.length) return;
 	for (const { listId, order } of changes) {
 		await recordOp({ op_id: uuid(), kind: 'list_reorder', list_id: listId, order });
+	}
+	kick();
+}
+
+/**
+ * Commit a Custom-mode task reorder: one MINIMAL `task_update` per Task whose
+ * `sort_order` actually changes (`planTaskReorder` computes the set),
+ * optimistic keys applied locally, single sync kick (contract delta v1.3 §4).
+ */
+export async function reorderTasks(changes: TaskOrderChange[]): Promise<void> {
+	if (!changes.length) return;
+	for (const { uid, sort_order } of changes) {
+		await recordOp({ op_id: uuid(), kind: 'task_update', uid, sort_order });
 	}
 	kick();
 }

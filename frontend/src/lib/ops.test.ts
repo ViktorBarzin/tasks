@@ -19,6 +19,7 @@ function task(uid: string, extra: Partial<Task> = {}): Task {
 		due: null,
 		due_has_time: false,
 		priority: 0,
+		sort_order: null,
 		completed: false,
 		completed_at: null,
 		recurring: false,
@@ -36,7 +37,8 @@ const CREATE: Op = {
 	notes: 'semi-skimmed',
 	due: '2026-07-04',
 	due_has_time: false,
-	priority: 5
+	priority: 5,
+	sort_order: 2048
 };
 
 describe('applyOpToMaps', () => {
@@ -48,6 +50,7 @@ describe('applyOpToMaps', () => {
 			list_id: 'l1',
 			title: 'Buy milk',
 			priority: 5,
+			sort_order: 2048,
 			completed: false,
 			recurring: false
 		});
@@ -73,6 +76,28 @@ describe('applyOpToMaps', () => {
 	it('task_update for a task deleted server-side is a no-op', () => {
 		const s = applyOpToMaps(state(), { op_id: 'o', kind: 'task_update', uid: 'ghost', title: 'x' });
 		expect(s.tasks.size).toBe(0);
+	});
+
+	it('task_update sets and clears sort_order without touching other fields', () => {
+		let s = applyOpToMaps(state([], [task('a', { title: 'keep', sort_order: null })]), {
+			op_id: 'o1',
+			kind: 'task_update',
+			uid: 'a',
+			sort_order: 3584
+		});
+		expect(s.tasks.get('a')).toMatchObject({ title: 'keep', sort_order: 3584 });
+		s = applyOpToMaps(s, { op_id: 'o2', kind: 'task_update', uid: 'a', sort_order: null });
+		expect(s.tasks.get('a')?.sort_order).toBeNull();
+	});
+
+	it('task_update without sort_order leaves the stored key alone', () => {
+		const s = applyOpToMaps(state([], [task('a', { sort_order: 1024 })]), {
+			op_id: 'o',
+			kind: 'task_update',
+			uid: 'a',
+			title: 'renamed'
+		});
+		expect(s.tasks.get('a')).toMatchObject({ title: 'renamed', sort_order: 1024 });
 	});
 
 	it('task_complete / task_uncomplete flip completion', () => {

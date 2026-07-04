@@ -5,6 +5,7 @@ import type { Priority, Task, TaskList } from './types';
 import { applyReorder } from './ui/reorderMath';
 import {
 	buildAllView,
+	buildListSections,
 	buildListView,
 	buildScheduledView,
 	buildTodayView,
@@ -36,6 +37,7 @@ function task(
 		due: null,
 		due_has_time: false,
 		priority: 0 as Priority,
+		sort_order: null,
 		completed: false,
 		completed_at: null,
 		recurring: false,
@@ -145,6 +147,74 @@ describe('buildListView', () => {
 		]);
 		const view = buildListView(s, 'groceries', { showCompleted: true, now: NOW });
 		expect(view.map((t) => t.title)).toEqual(['open', 'done']);
+	});
+});
+
+describe('buildListSections', () => {
+	const fixture = () =>
+		state([
+			// Custom keys deliberately disagree with both priority and due order.
+			task('c-none-late', { sort_order: 1024, priority: 0, due: '2026-07-09' }),
+			task('a-high', { sort_order: 3072, priority: 1 }),
+			task('b-med-early', { sort_order: 2048, priority: 5, due: '2026-07-05' }),
+			task('never-ordered', { priority: 9, due: '2026-07-05T08:00:00', due_has_time: true }),
+			task('done-z', { completed: true, completed_at: 'x', priority: 1 }),
+			task('done-due', { completed: true, completed_at: 'x', due: '2026-07-01' }),
+			task('other-list', { list_id: 'work', sort_order: 1 })
+		]);
+	const opts = { showCompleted: true, now: NOW };
+
+	it("'custom': open by sort_order asc nulls-last; other lists excluded", () => {
+		const { open } = buildListSections(fixture(), 'groceries', opts, 'custom');
+		expect(open.map((t) => t.title)).toEqual([
+			'c-none-late',
+			'b-med-early',
+			'a-high',
+			'never-ordered'
+		]);
+	});
+
+	it("'priority': High→Med→Low→None, ties by due then title", () => {
+		const { open } = buildListSections(fixture(), 'groceries', opts, 'priority');
+		expect(open.map((t) => t.title)).toEqual([
+			'a-high',
+			'b-med-early',
+			'never-ordered',
+			'c-none-late'
+		]);
+	});
+
+	it("'due': due asc datetime-aware nulls-last, ties by priority", () => {
+		const { open } = buildListSections(fixture(), 'groceries', opts, 'due');
+		expect(open.map((t) => t.title)).toEqual([
+			'b-med-early', // 07-05 all-day sorts before the timed 08:00
+			'never-ordered',
+			'c-none-late',
+			'a-high'
+		]);
+	});
+
+	it('the completed section keeps the standard order in EVERY mode', () => {
+		for (const mode of ['custom', 'priority', 'due'] as const) {
+			const { done } = buildListSections(fixture(), 'groceries', opts, mode);
+			expect(done.map((t) => t.title)).toEqual(['done-due', 'done-z']);
+		}
+	});
+
+	it('hidden completed stay out unless graced (they land in done)', () => {
+		const graced = task('just-done', { completed: true, completed_at: 'x' });
+		const s = state([task('open-a', { sort_order: 1 }), graced]);
+		const without = buildListSections(s, 'groceries', { showCompleted: false, now: NOW }, 'custom');
+		expect(without.open.map((t) => t.title)).toEqual(['open-a']);
+		expect(without.done).toEqual([]);
+		const withGrace = buildListSections(
+			s,
+			'groceries',
+			{ showCompleted: false, now: NOW, grace: new Set([graced.uid]) },
+			'custom'
+		);
+		expect(withGrace.open.map((t) => t.title)).toEqual(['open-a']);
+		expect(withGrace.done.map((t) => t.title)).toEqual(['just-done']);
 	});
 });
 
