@@ -1,10 +1,17 @@
 /**
- * Headless touch e2e for the built SPA (`vite preview` over adapter-static
- * output). One project: mobile Chromium with a touchscreen — the real-input
- * touch gestures (long-press-to-lift, drag, tap, scroll-cancel) are driven at
- * the CDP level in the specs, exercising the true browser input pipeline
- * rather than synthetic DOM events. All `/api` traffic is stubbed per-test;
- * service workers are blocked for determinism.
+ * Headless e2e for the built SPA (`vite preview` over adapter-static output),
+ * one project per input modality — both exercising the true browser input
+ * pipeline rather than synthetic DOM events:
+ *
+ *  - mobile-chromium-touch runs the `*-touch` specs on a touchscreen device
+ *    descriptor; the touch gestures (long-press-to-lift, drag, tap,
+ *    scroll-cancel) are driven at the CDP level in the specs;
+ *  - desktop-chromium-mouse runs the `*-mouse` specs with the plain Playwright
+ *    mouse (no touch emulation; matches `hover: hover` + `pointer: fine`) —
+ *    classic press-move-release drags, no hold.
+ *
+ * All `/api` traffic is stubbed per-test; service workers are blocked for
+ * determinism.
  */
 import { defineConfig, devices } from '@playwright/test';
 
@@ -25,7 +32,14 @@ export default defineConfig({
 			name: 'mobile-chromium-touch',
 			// Chromium descriptor (CDP touch); iPhone-ish metrics matter, engine
 			// specifics are covered on the real device rig.
-			use: { ...devices['Pixel 7'] }
+			use: { ...devices['Pixel 7'] },
+			testMatch: /-touch\.spec\.ts$/
+		},
+		{
+			name: 'desktop-chromium-mouse',
+			// The macOS/desktop PWA shape: mouse input, fine pointer, hover.
+			use: { ...devices['Desktop Chrome'] },
+			testMatch: /-mouse\.spec\.ts$/
 		}
 	],
 	webServer: {

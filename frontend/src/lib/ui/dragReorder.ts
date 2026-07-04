@@ -1,6 +1,8 @@
 /**
- * Svelte action: touch-first drag-to-reorder for a column of rows (iOS
- * Reminders Edit mode). Pointer Events only — no HTML5 drag API.
+ * Svelte action: drag-to-reorder for a column of rows (iOS Reminders Edit
+ * mode), touch-first with desktop mouse/pen semantics. Pointer Events only —
+ * no HTML5 drag API (`dragstart` inside the container is always
+ * defaultPrevented so no native drag ghost can start).
  *
  * Contract with the markup:
  *  - the action sits on the rows' CONTAINER; direct children carrying
@@ -10,22 +12,30 @@
  *    writes from pointerdown are too late for the current touch);
  *  - while a drag is live the container gets `.drag-reorder-active` and the
  *    lifted row `.drag-lifted` (lift styling — shadow/z-index — lives in CSS;
- *    the action drives transforms/transitions inline).
+ *    the action drives transforms/transitions inline), and a document-level
+ *    style forces `cursor: grabbing` + no text selection everywhere (desktop
+ *    affordance; removed on drop/cancel).
  *
- * Two ways to engage:
- *  - HANDLE (Edit mode): pointerdown on `[data-drag-handle]` grabs immediately;
- *  - LONG-PRESS (`liftOnHold` — native Reminders behavior): pointerdown
- *    anywhere on a `[data-drag-item]` starts a ~350ms hold (holdGesture.ts).
- *    Rows keep `touch-action: pan-y`, so the page scrolls natively until the
- *    lift: >8px of pre-lift travel cancels the hold (it was a scroll) and a
- *    pointercancel means the native pan claimed the touch. Only when the hold
- *    FIRES does the action own the gesture — pointer capture plus the
- *    non-passive `touchmove` blocker added at lift time preventDefault the
- *    still-cancelable touch stream (the finger held still, so WebKit hasn't
- *    committed to a scroll). A lifted gesture's click is swallowed by a
- *    capture-phase listener so the row's tap action (navigation) never runs;
- *    `contextmenu` inside the container is always defaultPrevented (no
- *    callout / context UI on long-press).
+ * Two ways to engage (primary button only):
+ *  - HANDLE (Edit mode): pointerdown on `[data-drag-handle]` grabs immediately
+ *    for EVERY pointer type;
+ *  - ROW BODY (`liftOnHold`): pointerType-aware via holdGesture.ts.
+ *    TOUCH — native Reminders behavior: pointerdown anywhere on a
+ *    `[data-drag-item]` starts a ~350ms hold. Rows keep `touch-action: pan-y`,
+ *    so the page scrolls natively until the lift: >8px of pre-lift travel
+ *    cancels the hold (it was a scroll) and a pointercancel means the native
+ *    pan claimed the touch. Only when the hold FIRES does the action own the
+ *    gesture — pointer capture plus the non-passive `touchmove` blocker added
+ *    at lift time preventDefault the still-cancelable touch stream (the finger
+ *    held still, so WebKit hasn't committed to a scroll).
+ *    MOUSE/PEN — classic desktop DnD, no hold: the row lifts as soon as the
+ *    pressed pointer travels >~5px; a press that never crosses it stays a
+ *    plain click (release → the row's tap action proceeds), however long it
+ *    was held.
+ *    In both modes a lifted gesture's click is swallowed by a capture-phase
+ *    listener so the row's tap action (navigation) never runs; `contextmenu`
+ *    inside the container is always defaultPrevented (no callout / context UI
+ *    on long-press).
  *
  * Mechanics (mobile-first, zero layout thrash):
  *  - geometry is snapshotted ONCE at grab (content-space row boxes + the
@@ -104,6 +114,25 @@ function findScroller(el: HTMLElement): HTMLElement | null {
 	return null;
 }
 
+/** Document-wide live-drag styling (desktop affordance): `cursor: grabbing`
+ * over EVERYTHING (element cursors like the rows' `grab`/`pointer` would win
+ * over an inherited value, hence the `!important` rule) and no text selection
+ * anywhere the pointer strays. One shared <style> node, attached only while a
+ * drag is live; inert for touch (no cursor, selection already off). */
+let dragStyleEl: HTMLStyleElement | null = null;
+function setDocumentDragStyle(on: boolean): void {
+	if (!on) {
+		dragStyleEl?.remove();
+		return;
+	}
+	if (!dragStyleEl) {
+		dragStyleEl = document.createElement('style');
+		dragStyleEl.textContent =
+			'* { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }';
+	}
+	if (!dragStyleEl.isConnected) document.head.appendChild(dragStyleEl);
+}
+
 export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 	let opts = options;
 	let live: LiveDrag | null = null;
@@ -149,7 +178,9 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 	}
 
 	function onPointerDown(e: PointerEvent): void {
-		if (!opts.enabled || live !== null || !e.isPrimary) return;
+		// Primary pointer, primary button only: a right/middle mouse press must
+		// neither grab a handle nor arm the row-body engagement.
+		if (!opts.enabled || live !== null || !e.isPrimary || e.button !== 0) return;
 		const target = e.target as Element | null;
 		const handle = target?.closest('[data-drag-handle]');
 		if (handle && node.contains(handle)) {
@@ -164,12 +195,13 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 		if (!opts.liftOnHold) return;
 		const item = target?.closest<HTMLElement>('[data-drag-item]');
 		if (!item || !node.contains(item)) return;
-		// Row-body press: do NOT preventDefault (a quick tap must stay a click)
-		// and do not own the touch yet — `touch-action: pan-y` keeps scrolling
-		// native. The hold machine arbitrates: travel = scroll, stillness = lift.
+		// Row-body press: do NOT preventDefault (a quick tap/click must stay a
+		// click) and do not own the pointer yet — `touch-action: pan-y` keeps
+		// touch scrolling native. The hold machine arbitrates by pointer type:
+		// touch — travel = scroll, stillness = lift; mouse/pen — travel = lift.
 		holdItem = item;
 		holdPointerId = e.pointerId;
-		hold.down(e.clientX, e.clientY);
+		hold.down(e.clientX, e.clientY, e.pointerType);
 	}
 
 	/** Engage the drag on `item` — shared by the handle path (at pointerdown)
@@ -202,6 +234,7 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 		node.setPointerCapture(pointerId);
 
 		node.classList.add('drag-reorder-active');
+		setDocumentDragStyle(true);
 		node.style.userSelect = 'none';
 		node.style.webkitUserSelect = 'none';
 		node.style.setProperty('-webkit-touch-callout', 'none');
@@ -307,6 +340,12 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 		e.preventDefault();
 	}
 
+	/** No native HTML5 drag may ever start inside the rows (a mouse drag over
+	 * stray selectable/draggable content would paint the OS drag ghost). */
+	function onDragStart(e: Event): void {
+		e.preventDefault();
+	}
+
 	function cancelDrag(): void {
 		if (live) finishDrag(false);
 	}
@@ -324,6 +363,7 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 			/* pointer already gone */
 		}
 		node.classList.remove('drag-reorder-active');
+		setDocumentDragStyle(false);
 		node.style.userSelect = '';
 		node.style.webkitUserSelect = '';
 		node.style.removeProperty('-webkit-touch-callout');
@@ -361,6 +401,7 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 	node.addEventListener('pointercancel', onPointerCancel);
 	node.addEventListener('click', onClickCapture, true);
 	node.addEventListener('contextmenu', onContextMenu);
+	node.addEventListener('dragstart', onDragStart);
 
 	return {
 		update(next: DragReorderOptions) {
@@ -382,6 +423,7 @@ export function dragReorder(node: HTMLElement, options: DragReorderOptions) {
 			node.removeEventListener('pointercancel', onPointerCancel);
 			node.removeEventListener('click', onClickCapture, true);
 			node.removeEventListener('contextmenu', onContextMenu);
+			node.removeEventListener('dragstart', onDragStart);
 		}
 	};
 }

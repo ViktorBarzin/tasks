@@ -1,8 +1,8 @@
 <script lang="ts">
 	/** Home: search, Smart View tiles (Today / Scheduled / All with counts),
-	 * My Lists with open counts (long-press a row to reorder; Edit → drag
-	 * handles, both server-backed via list_reorder ops), New Task + Add List in
-	 * the bottom bar.
+	 * My Lists with open counts (long-press a row — or just press-and-drag
+	 * with a mouse — to reorder; Edit → drag handles, both server-backed via
+	 * list_reorder ops), New Task + Add List in the bottom bar.
 	 *
 	 * NOTHING on Home is an <a>: iOS owns long-press on links (Safari link
 	 * preview / context menu), which both looks wrong in a standalone PWA and
@@ -167,7 +167,7 @@
 		<div class="card hairline-rows" use:dragReorder={{ enabled: true, liftOnHold: true, onreorder }}>
 			{#each displayLists as l (l.id)}
 				{#if editMode}
-					<div class="list-row" data-drag-item>
+					<div class="list-row" class:draggable={displayLists.length > 1} data-drag-item>
 						<span class="list-dot" style:background={listColor(l.id)}>
 							<Icon path={ICON_LIST} size={15} stroke={2} />
 						</span>
@@ -184,6 +184,7 @@
 				{:else}
 					<div
 						class="list-row nav"
+						class:draggable={displayLists.length > 1}
 						data-drag-item
 						role="link"
 						tabindex="0"
@@ -376,6 +377,17 @@
 
 	.list-row:global(.drag-lifted) .drag-handle {
 		cursor: grabbing;
+	}
+
+	/* Desktop affordance: fine-pointer devices see reorderable rows as
+	   grabbable — the mouse path lifts after ~5px of pressed travel, no hold
+	   (a plain click still navigates). Touch layouts never match the media
+	   query; during a live drag the action forces `grabbing` document-wide. */
+	@media (hover: hover) and (pointer: fine) {
+		.list-row.draggable,
+		.list-row.nav.draggable {
+			cursor: grab;
+		}
 	}
 
 	.results {

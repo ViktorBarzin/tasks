@@ -10,15 +10,17 @@
 	 * and delete behind a typed-confirm (Nextcloud's calendar trashbin is the
 	 * recovery net, ADR/design §10).
 	 *
-	 * In Custom mode the open rows reorder by long-press-to-lift drag — the
-	 * same dragReorder/holdGesture engine Home uses, wrapped rows instead of
+	 * In Custom mode the open rows reorder by drag — long-press-to-lift on
+	 * touch, plain press-and-drag with a mouse/pen (the same
+	 * dragReorder/holdGesture engine Home uses), wrapped rows instead of
 	 * anchors (TaskRow renders buttons only, so iOS structurally cannot show a
 	 * link preview). Pull-to-refresh needs no special-casing here (same as
 	 * Home's long-press path): a hold is stationary by definition (>8px
 	 * cancels it), so PTR never arms before a lift, and after the lift the
 	 * action's touchmove blocker owns the stream. A drop emits MINIMAL
 	 * task_update ops via planTaskReorder (contract delta v1.3 §4). In
-	 * Priority/Due modes the action is disabled: a long-press shows nothing.
+	 * Priority/Due modes the action is disabled: a long-press shows nothing
+	 * and a mouse drag does nothing.
 	 */
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -207,11 +209,11 @@
 				use:dragReorder={{ enabled: dragEnabled, liftOnHold: true, onreorder }}
 			>
 				{#each displayOpen as t (t.uid)}
-					<!-- Long-press drag target (Custom mode). Static touch-action /
-					     callout-off, exactly like Home's rows: iOS decides the gesture
-					     before any JS runs, and the list still pan-y scrolls until a
-					     lift actually happens. -->
-					<div class="task-item" data-drag-item>
+					<!-- Drag target (Custom mode): long-press on touch, press-and-drag
+					     with a mouse. Static touch-action / callout-off, exactly like
+					     Home's rows: iOS decides the gesture before any JS runs, and
+					     the list still pan-y scrolls until a lift actually happens. -->
+					<div class="task-item" class:draggable={dragEnabled} data-drag-item>
 						<TaskRow task={t} now={$now} {tint} onopen={() => (sheetTask = t)} />
 					</div>
 				{/each}
@@ -319,5 +321,17 @@
 		background: var(--card);
 		border-radius: 10px;
 		box-shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
+	}
+
+	/* Desktop affordance: in Custom sort (no active search) the rows are
+	   grabbable with a mouse — ~5px of pressed travel lifts, no hold. The
+	   TaskRow buttons inside carry the global `cursor: pointer`, so they need
+	   the override too. Touch never matches the media query; during a live
+	   drag the action forces `grabbing` document-wide. */
+	@media (hover: hover) and (pointer: fine) {
+		.task-item.draggable,
+		.task-item.draggable :global(button) {
+			cursor: grab;
+		}
 	}
 </style>
