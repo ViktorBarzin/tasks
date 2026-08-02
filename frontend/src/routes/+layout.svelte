@@ -12,11 +12,12 @@
 
 	import '../app.css';
 
-	import { api } from '$lib/api';
+	import { api, AuthWallError } from '$lib/api';
 	import Onboarding from '$lib/components/Onboarding.svelte';
 	import * as db from '$lib/db';
 	import { loadReplica, replica } from '$lib/replica';
 	import { scheduleSwUpdates } from '$lib/pwa';
+	import { clearReloginMarker, isReloginLoad, startRelogin } from '$lib/relogin';
 	import {
 		deadOps,
 		needsLogin,
@@ -51,6 +52,10 @@
 			});
 		}
 
+		// Back from the SSO round trip: the marker did its job (the SW let that
+		// navigation out), so tidy the address bar before anything bookmarks it.
+		if (isReloginLoad(window.location.search)) clearReloginMarker();
+
 		await loadReplica();
 		username = (await db.getMeta<string>('username')) ?? '';
 
@@ -69,7 +74,14 @@
 			} else {
 				gate = 'onboard';
 			}
-		} catch {
+		} catch (err) {
+			if (err instanceof AuthWallError) {
+				// Reachable, but the SSO session is gone and this device has nothing
+				// cached to show. Asking for Nextcloud credentials here would be a
+				// dead end — the sign-in wall is the only thing that can help.
+				needsLogin.set(true);
+				return;
+			}
 			// Unreachable server before this device ever onboarded: there is no
 			// Replica to show, and onboarding needs the network anyway.
 			gate = 'onboard';
@@ -97,8 +109,10 @@
 			username = me.username;
 			await db.setMeta('username', me.username);
 			if (!me.connected) needsReconnect.set(true);
-		} catch {
-			/* offline or flaky — the Replica carries the session */
+		} catch (err) {
+			// Offline or flaky — the Replica carries the session. A lapsed SSO
+			// session is different: say so now instead of waiting for a sync cycle.
+			if (err instanceof AuthWallError) needsLogin.set(true);
 		}
 	}
 
@@ -119,7 +133,7 @@
 <div class="app-shell">
 	{#if gate === 'app'}
 		{#if $needsLogin}
-			<button class="reconnect-banner" onclick={() => window.location.assign('/')}>
+			<button class="reconnect-banner" onclick={startRelogin}>
 				Session expired — <strong>sign in</strong>
 			</button>
 		{:else if $needsReconnect && !showReconnect}
@@ -143,6 +157,14 @@
 				<p>Downloading your tasks from Nextcloud…</p>
 			</div>
 		{/if}
+	{:else if $needsLogin}
+		<!-- Nothing cached to show and no session: the sign-in wall is the whole
+		     screen, not a banner over an empty app. -->
+		<div class="signin-wall">
+			<h1>Session expired</h1>
+			<p>Your sign-in has run out. Sign in again to get your tasks back.</p>
+			<button class="signin-button" onclick={startRelogin}>Sign in</button>
+		</div>
 	{:else if gate === 'onboard'}
 		<Onboarding {username} ondone={onboarded} />
 	{:else}
@@ -192,6 +214,41 @@
 
 	/* When the banner is present the screen's own navbar top inset doubles up;
 	   acceptable — the banner is a rare, transient state. */
+
+	/* Full-screen sibling of Onboarding: same measure, same button, for the
+	   device that has no cached tasks to sit behind a banner. */
+	.signin-wall {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		text-align: center;
+		padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px);
+	}
+
+	.signin-wall h1 {
+		font-size: 28px;
+		font-weight: 700;
+		margin: 0;
+	}
+
+	.signin-wall p {
+		margin: 0 0 8px;
+		color: var(--muted);
+		font-size: 15px;
+	}
+
+	.signin-button {
+		width: min(420px, 100%);
+		background: var(--accent);
+		color: #fff;
+		font-size: 17px;
+		font-weight: 600;
+		border-radius: 12px;
+		padding: 13px;
+	}
 
 	.boot {
 		flex: 1;

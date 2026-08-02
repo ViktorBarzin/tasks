@@ -19,6 +19,8 @@ import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { CacheFirst } from 'workbox-strategies';
 
+import { RELOGIN_PARAM } from './lib/relogin';
+
 declare let self: ServiceWorkerGlobalScope & {
 	__WB_MANIFEST: Array<{ url: string; revision: string | null }>;
 };
@@ -41,11 +43,29 @@ async function appShell(): Promise<Response> {
 	return fetch('/index.html');
 }
 
-// `/api`, health and metrics must reach the network (the §I auth-wall re-login
-// relies on a real navigation hitting Traefik→Authentik); everything else falls
-// back to the app shell.
+/**
+ * Navigations: the app shell, except for the §I re-login.
+ *
+ * A marked navigation MUST reach the network — the forward-auth bounce to the
+ * SSO login is the only way back in once the session lapses, and a shell served
+ * from the precache here is a dead end (the banner just comes back). Offline it
+ * still falls back to the shell, so tapping "sign in" with no signal lands on
+ * the app rather than the browser's error page.
+ */
+async function navigate(options: { request: Request; url: URL }): Promise<Response> {
+	if (options.url.searchParams.has(RELOGIN_PARAM)) {
+		try {
+			return await fetch(options.request);
+		} catch {
+			return appShell();
+		}
+	}
+	return appShell();
+}
+
+// `/api`, health and metrics are never navigations the shell should answer.
 registerRoute(
-	new NavigationRoute(appShell, {
+	new NavigationRoute(navigate, {
 		denylist: [/^\/api\//, /^\/healthz$/, /^\/metrics$/]
 	})
 );

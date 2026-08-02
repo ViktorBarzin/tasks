@@ -33,4 +33,9 @@ poetry run pytest && poetry run ruff check tasks_api tests alembic && poetry run
 cd frontend && npm install --include=dev
 npm run dev        # http://localhost:5173
 npm run check && npm test
+
+# e2e: gesture suites (service workers blocked), then the service-worker suite
+# (§H offline cold-start + §I re-login, against a Traefik→Authentik stand-in).
+# Both are timing-sensitive — on a loaded devvm pass --workers=2.
+npm run test:e2e && npm run test:e2e:sw
 ```

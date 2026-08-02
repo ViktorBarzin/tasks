@@ -6,6 +6,7 @@
 	 * (needsReconnect banner → here).
 	 */
 	import { api, ApiError, AuthWallError } from '$lib/api';
+	import { startRelogin } from '$lib/relogin';
 
 	interface Props {
 		/** Authentik username, prefilled as the likely NC username. */
@@ -36,9 +37,9 @@
 			ondone();
 		} catch (err) {
 			if (err instanceof AuthWallError) {
-				// SSO session lapsed while onboarding — a full navigation re-runs login
-				// (not the wrong "offline" message). §I.
-				window.location.assign('/');
+				// SSO session lapsed while onboarding — a marked navigation re-runs
+				// login (not the wrong "offline" message). §I.
+				startRelogin();
 				return;
 			}
 			if (err instanceof ApiError && err.status === 401) {

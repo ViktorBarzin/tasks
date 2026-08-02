@@ -11,7 +11,8 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:e2e": "playwright test"
+		"test:e2e": "playwright test",
+		"test:e2e:sw": "playwright test --config playwright.sw.config.ts"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

@@ -81,8 +81,13 @@ tripit pattern (`tripit/frontend/src/service-worker.ts`). It precaches the SPA s
 (`spa: true` + `adapterFallback: 'index.html'`) plus every content-hashed build asset and
 serves the shell for any in-scope navigation, so a never-visited deep link (`/list/<id>`)
 boots with no network; `/api`, `/healthz`, `/metrics` are denylisted so they always reach
-Traefik (the §I auth-wall re-login needs a real navigation). There is deliberately no
-runtime `/api` cache — the UI renders only from the IndexedDB Replica.
+Traefik. There is deliberately no runtime `/api` cache — the UI renders only from the
+IndexedDB Replica.
+
+The one navigation that must NOT be served from the shell is the §I auth-wall re-login: it
+carries a `?relogin=1` marker and the worker goes to the network for it, so forward-auth
+can bounce it to the SSO login (ADR-0003 — as first built, the re-login navigation was
+answered from the precache and there was no way to sign in from the installed app).
 
 We did NOT use the plugin's generated-SW (`GenerateSW`) `navigateFallback` config: on the
 current `@vite-pwa/sveltekit` + workbox it did not serve the shell for navigations, so the
