@@ -109,6 +109,16 @@ const app = createServer((req, res) => {
 			});
 		});
 	}
+	if (url.pathname === '/api/signin') {
+		// Mirrors the real endpoint: gated (so the wall above already 302'd an
+		// unauthenticated popup here) and self-closing.
+		const page =
+			'<!doctype html><meta charset="utf-8"><title>Signed in</title>' +
+			'<p id="signed-in">Signed in — you can close this window.</p>' +
+			'<script>window.close()</script>';
+		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+		return res.end(page);
+	}
 	if (url.pathname.startsWith('/api/')) return json(res, { error: { code: 'not_stubbed' } }, 404);
 
 	serveStatic(res, url.pathname);

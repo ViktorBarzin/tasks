@@ -39,10 +39,15 @@ test.beforeEach(async ({ request }) => {
 	await request.get(`${APP}/__test/restore`);
 });
 
-test('an expired SSO session can be re-authenticated from the installed PWA', async ({
+test('a blocked popup falls back to the full-page login and still gets back in', async ({
 	page,
 	request
 }) => {
+	// The browsers that refuse popups are exactly where the marked navigation
+	// (and the service-worker escape hatch it needs) has to carry the login.
+	await page.addInitScript(() => {
+		window.open = () => null;
+	});
 	await page.goto('/');
 	await expect(page.locator('.list-name')).toHaveText(['Alpha', 'Bravo']);
 	await installedPwa(page);
@@ -54,7 +59,7 @@ test('an expired SSO session can be re-authenticated from the installed PWA', as
 	const signIn = page.getByRole('button', { name: /session expired/i });
 	await expect(signIn).toBeVisible();
 
-	// The remediation must leave the app and reach the login page.
+	// With no popup available, the app window itself must reach the login page.
 	await signIn.click();
 	await expect(page.locator('#sso-login')).toBeVisible();
 
@@ -63,6 +68,66 @@ test('an expired SSO session can be re-authenticated from the installed PWA', as
 	await page.getByRole('button', { name: 'Continue' }).click();
 	await expect(page.locator('.list-name')).toHaveText(['Alpha', 'Bravo']);
 	await expect(page.getByRole('button', { name: /session expired/i })).toBeHidden();
+});
+
+test('a popup closed before finishing escalates to the full-page path on the next tap', async ({
+	page,
+	context,
+	request
+}) => {
+	await page.goto('/');
+	await expect(page.locator('.list-name')).toHaveText(['Alpha', 'Bravo']);
+	await installedPwa(page);
+
+	await request.get(`${APP}/__test/expire`);
+	await resume(page);
+	await expect(page.getByRole('button', { name: /session expired/i })).toBeVisible();
+
+	// Open the popup, then abandon it — the iOS case in miniature: a popup that
+	// never yields a session for THIS app.
+	const popup = await Promise.all([
+		context.waitForEvent('page'),
+		page.getByRole('button', { name: /session expired/i }).click()
+	]).then((r) => r[0]);
+	await expect(popup.locator('#sso-login')).toBeVisible();
+	await popup.close();
+
+	// The banner now offers the path that always works, and that tap delivers.
+	const retry = page.getByRole('button', { name: /sign in here/i });
+	await expect(retry).toBeVisible();
+	await retry.click();
+	await expect(page.locator('#sso-login')).toBeVisible();
+	await page.getByRole('button', { name: 'Continue' }).click();
+	await expect(page.getByRole('button', { name: /session expired/i })).toBeHidden();
+});
+
+test('the sign-in popup restores the session without reloading the app', async ({
+	page,
+	context,
+	request
+}) => {
+	await page.goto('/');
+	await expect(page.locator('.list-name')).toHaveText(['Alpha', 'Bravo']);
+	await installedPwa(page);
+
+	// Mark the live document: if the app reloads, this is gone — the whole point
+	// of the popup is that it does NOT.
+	await page.evaluate(() => ((window as unknown as { __kept: boolean }).__kept = true));
+
+	await request.get(`${APP}/__test/expire`);
+	await resume(page);
+	const signIn = page.getByRole('button', { name: /session expired/i });
+	await expect(signIn).toBeVisible();
+
+	// The tap opens the SSO login in a popup, not in the app window.
+	const popup = await Promise.all([context.waitForEvent('page'), signIn.click()]).then((r) => r[0]);
+	await expect(popup.locator('#sso-login')).toBeVisible();
+	await popup.getByRole('button', { name: 'Continue' }).click();
+
+	// Session restored, banner gone, app never reloaded.
+	await expect(page.getByRole('button', { name: /session expired/i })).toBeHidden();
+	await expect(page.locator('.list-name')).toHaveText(['Alpha', 'Bravo']);
+	expect(await page.evaluate(() => (window as unknown as { __kept?: boolean }).__kept)).toBe(true);
 });
 
 test('signing in with no signal falls back to the app, not a browser error page', async ({

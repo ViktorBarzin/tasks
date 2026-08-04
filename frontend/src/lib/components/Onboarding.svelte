@@ -6,7 +6,7 @@
 	 * (needsReconnect banner → here).
 	 */
 	import { api, ApiError, AuthWallError } from '$lib/api';
-	import { startRelogin } from '$lib/relogin';
+	import { signIn } from '$lib/signin';
 
 	interface Props {
 		/** Authentik username, prefilled as the likely NC username. */
@@ -37,9 +37,11 @@
 			ondone();
 		} catch (err) {
 			if (err instanceof AuthWallError) {
-				// SSO session lapsed while onboarding — a marked navigation re-runs
-				// login (not the wrong "offline" message). §I.
-				startRelogin();
+				// SSO session lapsed mid-onboarding — the popup re-runs login without
+				// discarding the credentials just typed (not the wrong "offline"
+				// message). §I.
+				error = 'Your sign-in ran out — finish signing in, then press Connect again.';
+				void signIn();
 				return;
 			}
 			if (err instanceof ApiError && err.status === 401) {

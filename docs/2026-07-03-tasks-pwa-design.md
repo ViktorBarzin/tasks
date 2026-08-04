@@ -89,6 +89,10 @@ carries a `?relogin=1` marker and the worker goes to the network for it, so forw
 can bounce it to the SSO login (ADR-0003 — as first built, the re-login navigation was
 answered from the precache and there was no way to sign in from the installed app).
 
+Re-login now prefers a **popup** on `/api/signin` (ADR-0004) so the app is not torn down;
+the marked navigation is the fallback when a browser refuses the popup or the popup ends
+without a session for this app.
+
 We did NOT use the plugin's generated-SW (`GenerateSW`) `navigateFallback` config: on the
 current `@vite-pwa/sveltekit` + workbox it did not serve the shell for navigations, so the
 offline cold-start failed. Consequence: `workbox-core`, `workbox-precaching`,

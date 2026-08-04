@@ -18,6 +18,7 @@
 	import { loadReplica, replica } from '$lib/replica';
 	import { scheduleSwUpdates } from '$lib/pwa';
 	import { clearReloginMarker, isReloginLoad, startRelogin } from '$lib/relogin';
+	import { signIn, signinFailed, signinPending } from '$lib/signin';
 	import {
 		deadOps,
 		needsLogin,
@@ -116,6 +117,17 @@
 		}
 	}
 
+	/**
+	 * Sign in without tearing the app down (§I): a popup carries the SSO round
+	 * trip. If that attempt ended without a session — popup closed, or a browser
+	 * that opens it outside this app's context — the next tap takes the
+	 * full-page path, which always reaches the login page.
+	 */
+	function onSignInTap(): void {
+		if (get(signinFailed)) startRelogin();
+		else void signIn();
+	}
+
 	async function onboarded(): Promise<void> {
 		await db.setMeta('connected', true);
 		needsReconnect.set(false);
@@ -133,8 +145,14 @@
 <div class="app-shell">
 	{#if gate === 'app'}
 		{#if $needsLogin}
-			<button class="reconnect-banner" onclick={startRelogin}>
-				Session expired — <strong>sign in</strong>
+			<button class="reconnect-banner" onclick={onSignInTap} disabled={$signinPending}>
+				{#if $signinPending}
+					Waiting for sign-in…
+				{:else if $signinFailed}
+					Sign-in didn’t finish — <strong>sign in here</strong>
+				{:else}
+					Session expired — <strong>sign in</strong>
+				{/if}
 			</button>
 		{:else if $needsReconnect && !showReconnect}
 			<button class="reconnect-banner" onclick={() => (showReconnect = true)}>
@@ -162,8 +180,16 @@
 		     screen, not a banner over an empty app. -->
 		<div class="signin-wall">
 			<h1>Session expired</h1>
-			<p>Your sign-in has run out. Sign in again to get your tasks back.</p>
-			<button class="signin-button" onclick={startRelogin}>Sign in</button>
+			<p>
+				{#if $signinFailed}
+					That sign-in window closed before it finished. This opens sign-in in the app instead.
+				{:else}
+					Your sign-in has run out. Sign in again to get your tasks back.
+				{/if}
+			</p>
+			<button class="signin-button" onclick={onSignInTap} disabled={$signinPending}>
+				{$signinPending ? 'Waiting for sign-in…' : 'Sign in'}
+			</button>
 		</div>
 	{:else if gate === 'onboard'}
 		<Onboarding {username} ondone={onboarded} />
