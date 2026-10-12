@@ -7,7 +7,7 @@ packages = [{ include = "tasks_api" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"
-fastapi = "^0.115"
+fastapi = "^0.143"
 uvicorn = "^0.32"
 icalendar = "^6.1"
 python-dateutil = "^2.9"
@@ -15,9 +15,9 @@ sqlalchemy = { extras = ["asyncio"], version = "^2.0" }
 aiosqlite = "^0.20"
 asyncpg = "^0.30"
 alembic = "^1.14"
-cryptography = "^44.0"
+cryptography = "^50.0"
 httpx = "^0.28"
-prometheus-fastapi-instrumentator = "^7.0"
+prometheus-fastapi-instrumentator = "^8.1"
 anyio = "^4"
 
 [tool.poetry.group.dev.dependencies]
