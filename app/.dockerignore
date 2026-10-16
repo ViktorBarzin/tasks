@@ -1,0 +1,9 @@
+node_modules
+.output
+.nitro
+.tanstack
+test-results
+playwright-report
+.env
+.env.*
+*.local
