@@ -18,5 +18,9 @@ steps:
   - name: deploy
     image: bitnami/kubectl:latest
     commands:
-      - kubectl -n tasks set image deployment/tasks migrate=ghcr.io/viktorbarzin/tasks:${IMAGE_TAG} tasks=ghcr.io/viktorbarzin/tasks:${IMAGE_TAG}
-      - kubectl -n tasks rollout status deployment/tasks --timeout=300s
+      # A block scalar: Woodpecker substitutes ${IMAGE_TAG} before parsing,
+      # and on a push it is empty, which turns "tasks:${IMAGE_TAG} tasks=" in
+      # a plain scalar into "tasks: tasks=" and fails the YAML load.
+      - |
+        kubectl -n tasks set image deployment/tasks migrate=ghcr.io/viktorbarzin/tasks:${IMAGE_TAG} tasks=ghcr.io/viktorbarzin/tasks:${IMAGE_TAG}
+        kubectl -n tasks rollout status deployment/tasks --timeout=300s
