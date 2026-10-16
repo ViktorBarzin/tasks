@@ -324,6 +324,15 @@ export const ERROR_CODES = {
 	bad_request: 400,
 	not_found: 404,
 	conflict: 409,
+	// New in the TypeScript build (sign-in moved into the app, ADR-0001):
+	/** 403: signed in, but not in Tasks Users yet; the client shows the pending page. */
+	access_pending: 403,
+	/** 403: an admin-only action, or a cross-origin request the CSRF check refused. */
+	forbidden: 403,
+	/** 502: Authentik refused or did not answer an approval. */
+	authentik_unavailable: 502,
+	/** 503: sign-in cannot start (the identity provider's discovery failed). */
+	auth_unavailable: 503,
 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 

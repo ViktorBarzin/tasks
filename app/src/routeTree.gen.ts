@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HealthzRouteImport } from './routes/healthz'
 import { Route as MetricsRouteImport } from './routes/metrics'
+import { Route as PendingRouteImport } from './routes/pending'
+import { Route as AdminRequestsRouteImport } from './routes/admin/requests'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as ApiEventsRouteImport } from './routes/api/events'
 import { Route as ApiMeRouteImport } from './routes/api/me'
@@ -20,6 +22,8 @@ import { Route as ApiOpsRouteImport } from './routes/api/ops'
 import { Route as ApiSigninRouteImport } from './routes/api/signin'
 import { Route as ApiSyncRouteImport } from './routes/api/sync'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiAuthFinishRouteImport } from './routes/api/auth/finish'
+import { Route as ApiAuthStartRouteImport } from './routes/api/auth/start'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,6 +38,16 @@ const HealthzRoute = HealthzRouteImport.update({
 const MetricsRoute = MetricsRouteImport.update({
   id: '/metrics',
   path: '/metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PendingRoute = PendingRouteImport.update({
+  id: '/pending',
+  path: '/pending',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRequestsRoute = AdminRequestsRouteImport.update({
+  id: '/admin/requests',
+  path: '/admin/requests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSplatRoute = ApiSplatRouteImport.update({
@@ -76,11 +90,23 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthFinishRoute = ApiAuthFinishRouteImport.update({
+  id: '/api/auth/finish',
+  path: '/api/auth/finish',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthStartRoute = ApiAuthStartRouteImport.update({
+  id: '/api/auth/start',
+  path: '/api/auth/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/healthz': typeof HealthzRoute
   '/metrics': typeof MetricsRoute
+  '/pending': typeof PendingRoute
+  '/admin/requests': typeof AdminRequestsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/events': typeof ApiEventsRoute
   '/api/me': typeof ApiMeRoute
@@ -89,11 +115,15 @@ export interface FileRoutesByFullPath {
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/finish': typeof ApiAuthFinishRoute
+  '/api/auth/start': typeof ApiAuthStartRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/healthz': typeof HealthzRoute
   '/metrics': typeof MetricsRoute
+  '/pending': typeof PendingRoute
+  '/admin/requests': typeof AdminRequestsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/events': typeof ApiEventsRoute
   '/api/me': typeof ApiMeRoute
@@ -102,12 +132,16 @@ export interface FileRoutesByTo {
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/finish': typeof ApiAuthFinishRoute
+  '/api/auth/start': typeof ApiAuthStartRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/healthz': typeof HealthzRoute
   '/metrics': typeof MetricsRoute
+  '/pending': typeof PendingRoute
+  '/admin/requests': typeof AdminRequestsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/events': typeof ApiEventsRoute
   '/api/me': typeof ApiMeRoute
@@ -116,6 +150,8 @@ export interface FileRoutesById {
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/finish': typeof ApiAuthFinishRoute
+  '/api/auth/start': typeof ApiAuthStartRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -123,6 +159,8 @@ export interface FileRouteTypes {
     | '/'
     | '/healthz'
     | '/metrics'
+    | '/pending'
+    | '/admin/requests'
     | '/api/$'
     | '/api/events'
     | '/api/me'
@@ -131,11 +169,15 @@ export interface FileRouteTypes {
     | '/api/signin'
     | '/api/sync'
     | '/api/auth/$'
+    | '/api/auth/finish'
+    | '/api/auth/start'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/healthz'
     | '/metrics'
+    | '/pending'
+    | '/admin/requests'
     | '/api/$'
     | '/api/events'
     | '/api/me'
@@ -144,11 +186,15 @@ export interface FileRouteTypes {
     | '/api/signin'
     | '/api/sync'
     | '/api/auth/$'
+    | '/api/auth/finish'
+    | '/api/auth/start'
   id:
     | '__root__'
     | '/'
     | '/healthz'
     | '/metrics'
+    | '/pending'
+    | '/admin/requests'
     | '/api/$'
     | '/api/events'
     | '/api/me'
@@ -157,12 +203,16 @@ export interface FileRouteTypes {
     | '/api/signin'
     | '/api/sync'
     | '/api/auth/$'
+    | '/api/auth/finish'
+    | '/api/auth/start'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HealthzRoute: typeof HealthzRoute
   MetricsRoute: typeof MetricsRoute
+  PendingRoute: typeof PendingRoute
+  AdminRequestsRoute: typeof AdminRequestsRoute
   ApiSplatRoute: typeof ApiSplatRoute
   ApiEventsRoute: typeof ApiEventsRoute
   ApiMeRoute: typeof ApiMeRoute
@@ -171,6 +221,8 @@ export interface RootRouteChildren {
   ApiSigninRoute: typeof ApiSigninRoute
   ApiSyncRoute: typeof ApiSyncRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiAuthFinishRoute: typeof ApiAuthFinishRoute
+  ApiAuthStartRoute: typeof ApiAuthStartRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -194,6 +246,20 @@ declare module '@tanstack/react-router' {
       path: '/metrics'
       fullPath: '/metrics'
       preLoaderRoute: typeof MetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pending': {
+      id: '/pending'
+      path: '/pending'
+      fullPath: '/pending'
+      preLoaderRoute: typeof PendingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/requests': {
+      id: '/admin/requests'
+      path: '/admin/requests'
+      fullPath: '/admin/requests'
+      preLoaderRoute: typeof AdminRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/$': {
@@ -252,6 +318,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/finish': {
+      id: '/api/auth/finish'
+      path: '/api/auth/finish'
+      fullPath: '/api/auth/finish'
+      preLoaderRoute: typeof ApiAuthFinishRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/start': {
+      id: '/api/auth/start'
+      path: '/api/auth/start'
+      fullPath: '/api/auth/start'
+      preLoaderRoute: typeof ApiAuthStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -259,6 +339,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HealthzRoute: HealthzRoute,
   MetricsRoute: MetricsRoute,
+  PendingRoute: PendingRoute,
+  AdminRequestsRoute: AdminRequestsRoute,
   ApiSplatRoute: ApiSplatRoute,
   ApiEventsRoute: ApiEventsRoute,
   ApiMeRoute: ApiMeRoute,
@@ -267,6 +349,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSigninRoute: ApiSigninRoute,
   ApiSyncRoute: ApiSyncRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiAuthFinishRoute: ApiAuthFinishRoute,
+  ApiAuthStartRoute: ApiAuthStartRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

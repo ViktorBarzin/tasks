@@ -12,6 +12,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { SQL } from "bun";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 
 import python from "../crypto/fixtures/fernet-python.json";
 import { accountPassword, getAccount, upsertAccount } from "./accounts.server";
@@ -20,6 +21,7 @@ import { runMigrations } from "./migrate.server";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const migrationsFolder = resolve(import.meta.dir, "../../../drizzle");
+const MIGRATION_COUNT = readMigrationFiles({ migrationsFolder }).length;
 
 /** The DDL Alembic 0001 + 0002 produce (backend/alembic/versions). */
 const ALEMBIC_SCHEMA = `
@@ -94,13 +96,17 @@ describe.skipIf(!adminUrl)("migrations", () => {
 		const [alembic] = await client`select version_num from alembic_version`;
 		await client.close();
 
-		expect(first).toEqual({ baselineMarked: true, applied: 0 });
+		// The baseline is recorded, not run; later (additive) migrations run.
+		expect(first).toEqual({
+			baselineMarked: true,
+			applied: MIGRATION_COUNT - 1,
+		});
 		expect(second).toEqual({ baselineMarked: false, applied: 0 });
-		expect(rows).toHaveLength(1);
+		expect(rows).toHaveLength(MIGRATION_COUNT);
 		expect(alembic).toEqual({ version_num: "0002" });
 	});
 
-	test("on an empty database, runs the baseline and creates both tables", async () => {
+	test("on an empty database, runs every migration", async () => {
 		const url = await freshDatabase();
 		const client = withDatabaseUrl(url, () => createSqlClient({ max: 1 }));
 		const result = await runMigrations(client, migrationsFolder);
@@ -109,11 +115,10 @@ describe.skipIf(!adminUrl)("migrations", () => {
 			where table_schema = 'public' order by table_name`;
 		await client.close();
 
-		expect(result).toEqual({ baselineMarked: false, applied: 1 });
-		expect(tables.map((t: { table_name: string }) => t.table_name)).toEqual([
-			"applied_ops",
-			"connected_accounts",
-		]);
+		expect(result).toEqual({ baselineMarked: false, applied: MIGRATION_COUNT });
+		const names = tables.map((t: { table_name: string }) => t.table_name);
+		expect(names).toContain("applied_ops");
+		expect(names).toContain("connected_accounts");
 	});
 
 	test("two migrators started together apply each migration once", async () => {
@@ -127,8 +132,8 @@ describe.skipIf(!adminUrl)("migrations", () => {
 		const rows = await a`select hash from drizzle.__drizzle_migrations`;
 		await Promise.all([a.close(), b.close()]);
 
-		expect(results.map((r) => r.applied).sort()).toEqual([0, 1]);
-		expect(rows).toHaveLength(1);
+		expect(results.map((r) => r.applied).sort()).toEqual([0, MIGRATION_COUNT]);
+		expect(rows).toHaveLength(MIGRATION_COUNT);
 	});
 });
 

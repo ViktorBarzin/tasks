@@ -1,5 +1,6 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
 
+import { csrfRejection } from "#/server/auth/csrf.server";
 import { getLogger } from "#/server/logging.server";
 import {
 	handlerLabel,
@@ -42,6 +43,21 @@ const observe = createMiddleware().server(async ({ request, next }) => {
 	}
 });
 
+/**
+ * The explicit CSRF check (ADR-0001, Browser security; src/server/auth/csrf.server.ts):
+ * state-changing requests and the SSE stream must come from a public origin.
+ * Covers server functions, server routes and /api/events alike.
+ */
+const csrf = createMiddleware().server(async ({ request, next }) => {
+	const rejection = csrfRejection(request);
+	if (rejection) return rejection;
+	return next();
+});
+// Tell Start this is the app's CSRF middleware, so it does not warn in dev.
+Object.defineProperty(csrf, Symbol.for("tanstack-start:csrf-middleware"), {
+	value: true,
+});
+
 export const startInstance = createStart(() => ({
-	requestMiddleware: [observe],
+	requestMiddleware: [observe, csrf],
 }));
