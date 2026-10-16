@@ -1,0 +1,123 @@
+name: Build and Push (TypeScript app)
+
+# Off-infra build of the TypeScript port in app/ (ADR-0002; default stack in
+# ~/code/docs/adr/0001-default-app-stack.md). Same shape as build.yml, which
+# keeps building the live Python image: GitHub-hosted runners build and push
+# to GHCR, so the homelab never sees build IO or registry pushes.
+#
+# Runs only when app/** (or this file) changes on master. It does not tag
+# semver (build.yml's svu step owns the repo's vX.Y.Z tags) and does not
+# trigger a deploy: the TypeScript build has no Deployment until the cutover
+# (ADR-0001, Pilot / Cutover) adds one.
+#
+# Committed on the FORGEJO side (the mirror is one-way; commits made on GitHub
+# are overwritten by the next sync).
+on:
+  push:
+    branches: [master]
+    paths:
+      - "app/**"
+      - ".github/workflows/build-ts.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    services:
+      # Database tests (and the HTTP tests against the built server) run when
+      # TEST_DATABASE_URL is set; each test makes and drops its own database.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:ci@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run typecheck
+      # Build before the tests: the auth and realtime HTTP tests start
+      # .output/server/index.mjs.
+      - run: bun run build
+      - run: bun run test
+      - run: bunx playwright install --with-deps chromium
+      # e2e/global-setup.ts builds ../frontend with npm for the cutover spec.
+      - run: bun run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: app/test-results/
+          retention-days: 7
+
+  build:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        working-directory: .
+        run: echo "sha=$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        with:
+          context: app
+          file: app/Dockerfile
+          push: true
+          platforms: linux/amd64
+          # Single-manifest images (no provenance/SBOM attestation children) so
+          # registry retention can never orphan index children (ADR-0002).
+          provenance: false
+          tags: |
+            ghcr.io/viktorbarzin/tasks-ts:${{ steps.meta.outputs.sha }}
+            ghcr.io/viktorbarzin/tasks-ts:latest
+          # A scope of its own, so this build and build.yml's do not evict
+          # each other's layer cache.
+          cache-from: type=gha,scope=tasks-ts
+          cache-to: type=gha,mode=max,scope=tasks-ts
+      # Keep the newest ~10 versions on ghcr (latest rides the newest one).
+      - name: ghcr retention (keep 10)
+        uses: actions/delete-package-versions@v5
+        continue-on-error: true
+        with:
+          package-name: tasks-ts
+          package-type: container
+          min-versions-to-keep: 10
+
+  notify-failure:
+    needs: [lint-and-test, build]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack notify
+        working-directory: .
+        run: |
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            -d "{\"text\":\":rotating_light: tasks-ts off-infra build FAILED: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "${{ secrets.SLACK_WEBHOOK }}" || true
