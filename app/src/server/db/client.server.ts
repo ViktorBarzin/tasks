@@ -14,7 +14,12 @@ import { drizzle } from "drizzle-orm/bun-sql";
 import { getDatabaseSettings } from "../config.server";
 import * as schema from "./schema.server";
 
-export const APP_POOL_MAX = 5;
+/**
+ * ADR-0001 allows at most 5 connections per pod. The realtime LISTEN
+ * connection (src/server/realtime/listener.server.ts) sits outside this pool,
+ * so the pool takes 4 and a pod stays at 5 in all.
+ */
+export const APP_POOL_MAX = 4;
 
 export interface SqlClientOptions {
 	/** Pool size. Defaults to APP_POOL_MAX. */
@@ -47,7 +52,7 @@ export type Db = ReturnType<typeof createDb>;
 
 let shared: { client: SQL; db: Db } | null = null;
 
-/** The app's shared pool (max 5 connections). */
+/** The app's shared pool (max APP_POOL_MAX connections). */
 export function getDb(): Db {
 	if (shared === null) {
 		const client = createSqlClient();

@@ -10,7 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  * Projects, one per input modality plus the service-worker suite:
  *  - mobile-chromium-touch: `*-touch` specs on a touchscreen descriptor;
  *    gestures are driven through CDP touch events (the real input pipeline);
- *  - desktop-chromium-mouse: `*-mouse` and smoke specs with the plain mouse
+ *  - desktop-chromium-mouse: `*-mouse`, smoke and access specs with the plain mouse
  *    (`hover: hover`, `pointer: fine`);
  *  - pwa: `sw/` specs with a LIVE service worker, served through the stub
  *    origin in e2e/fixtures/pwa-server.ts (page.route cannot stub requests a
@@ -62,7 +62,7 @@ export default defineConfig({
 		{
 			name: "desktop-chromium-mouse",
 			use: { ...devices["Desktop Chrome"], serviceWorkers: "block" },
-			testMatch: /(-mouse|smoke)\.spec\.ts$/,
+			testMatch: /(-mouse|smoke|access)\.spec\.ts$/,
 		},
 		{
 			name: "pwa",

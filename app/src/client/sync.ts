@@ -7,7 +7,7 @@
  * resolution (Silent LWW), so "duplicate" and "lww_reapplied" are successes.
  */
 
-import { ApiError, AuthWallError, api } from "./api";
+import { AccessPendingError, ApiError, AuthWallError, api } from "./api";
 import * as db from "./db";
 import { foldServerState } from "./replica";
 import { writable } from "./store";
@@ -22,6 +22,9 @@ export const needsReconnect = writable(false);
 /** Authentik SSO session expired: a full re-login is needed (distinct from
  * offline and from a revoked Nextcloud password). */
 export const needsLogin = writable(false);
+/** Signed in but not approved yet (403 `access_pending`): AppGate goes to
+ * the pending page. Retrying cannot help until an admin approves. */
+export const accessPending = writable(false);
 /** Permanently-rejected ops parked in the dead-letter store — "N couldn't sync". */
 export const deadOps = writable(0);
 /** A retryable op stuck for many cycles — a persistent sync-failure banner. */
@@ -111,7 +114,10 @@ async function cycle(): Promise<void> {
 		needsReconnect.set(false);
 		needsLogin.set(false);
 	} catch (err) {
-		if (err instanceof AuthWallError) {
+		if (err instanceof AccessPendingError) {
+			online.set(true);
+			accessPending.set(true);
+		} else if (err instanceof AuthWallError) {
 			// SSO session lapsed — reachable, but bounced to login. Not offline.
 			online.set(true);
 			needsLogin.set(true);
@@ -215,6 +221,7 @@ export function _resetSyncForTests(): void {
 	pendingOps.set(0);
 	needsReconnect.set(false);
 	needsLogin.set(false);
+	accessPending.set(false);
 	deadOps.set(0);
 	syncStuck.set(false);
 	lastSyncAt.set(null);

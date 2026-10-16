@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { safeReturnPath } from "#/server/auth/auth.server";
 import { signInRedirect } from "#/server/auth/session.server";
 import { resolveUser } from "#/server/auth/user.server";
 import { ApiError, toErrorResponse } from "#/server/http/errors.server";
@@ -13,7 +14,13 @@ import { SIGNIN_PATH } from "#/shared/contract";
  * who is still waiting for approval also gets the page: the opener's
  * /api/me then answers 403 `access_pending`. Never cached, so a walled popup
  * cannot fake it. Same bytes as backend/tasks_api/routers/signin.py.
+ *
+ * The full-page path (src/client/relogin.ts, tasks ADR-0003) opens
+ * `/api/signin?return_to=<path>`: the OAuth flow comes back here with
+ * `return_to` intact, and a signed-in request is redirected to that path
+ * (same-origin paths only, safeReturnPath) instead of getting the page.
  */
+const RETURN_TO_PARAM = "return_to";
 const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -37,7 +44,19 @@ export const Route = createFileRoute("/api/signin")({
 		handlers: {
 			GET: async ({ request }) => {
 				try {
+					const returnTo = new URL(request.url).searchParams.get(
+						RETURN_TO_PARAM,
+					);
 					if (await resolveUser(request)) {
+						if (returnTo !== null) {
+							return new Response(null, {
+								status: 302,
+								headers: {
+									location: safeReturnPath(returnTo),
+									"cache-control": "no-store",
+								},
+							});
+						}
 						return new Response(PAGE, {
 							headers: {
 								"content-type": "text/html; charset=utf-8",
@@ -45,7 +64,11 @@ export const Route = createFileRoute("/api/signin")({
 							},
 						});
 					}
-					const start = signInRedirect(SIGNIN_PATH);
+					const start = signInRedirect(
+						returnTo === null
+							? SIGNIN_PATH
+							: `${SIGNIN_PATH}?${new URLSearchParams({ [RETURN_TO_PARAM]: safeReturnPath(returnTo) })}`,
+					);
 					if (start) return start;
 					throw new ApiError(401, "unauthorized", "not signed in");
 				} catch (err) {

@@ -21,7 +21,7 @@
  */
 import { SIGNIN_PATH } from "#/shared/contract";
 
-import { api } from "./api";
+import { AccessPendingError, api } from "./api";
 import { startRelogin } from "./relogin";
 import { writable } from "./store";
 import { needsLogin, syncNow } from "./sync";
@@ -54,7 +54,10 @@ const defaults: SignInDeps = {
 		try {
 			await api.me();
 			return true;
-		} catch {
+		} catch (err) {
+			// A live session that still waits for approval: the sync cycle
+			// onSignedIn starts sends the window to the pending page.
+			if (err instanceof AccessPendingError) return true;
 			// Still walled (or briefly offline) — keep waiting.
 			return false;
 		}

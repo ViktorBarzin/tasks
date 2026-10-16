@@ -118,7 +118,9 @@ SSR environment is built with `TSS_SHELL=true` (vite.config.ts), Start's SPA
 flag: the server answers every page with the same shell (the root route and
 AppGate's boot spinner), and the service worker precaches `/` and serves it
 for every navigation, so a deep link cold-starts offline. Do not add loaders
-or server rendering to UI routes; data comes from `src/client/`.
+or server rendering to the Replica screens; their data comes from
+`src/client/`. The `/pending` and `/admin/*` pages are the exception: their
+loaders call server functions, which run on the client after the shell loads.
 
 Frozen for the cutover (ADR-0001, Pilot / Client continuity): the IndexedDB
 name, version and stores (`src/shared/replica-contract.ts`), the op wire
@@ -137,12 +139,14 @@ queued; `e2e/sw/cutover.spec.ts` checks exactly that.
   401 `nextcloud_unauthorized` is the reconnect banner. Sign-in opens
   `/api/signin` in a popup; the fallback navigates to
   `/api/signin?return_to=<path>` after checking the server is reachable.
+- A signed-in person who is not approved yet gets a 403 `access_pending`
+  (`AccessPendingError`); AppGate sends the window to `/pending`. `/pending`
+  and `/admin/*` render outside AppGate (`src/routes/__root.tsx`) and load
+  through server functions, so they need no Connected Account.
 - `/api/events` (SSE): `poke` from another device, `resync`, and every
-  (re)connect run the normal sync cycle.
-
-Contract stubs throw `NotImplementedError` (`src/server/not-implemented.server.ts`),
-which /api routes answer as `501 not_implemented`. Each stub's doc comment
-names the Python module it ports and the behaviour to keep.
+  (re)connect run the normal sync cycle. That is a delta sync from the
+  stored cursor, not a full snapshot: the CalDAV sync-token delta is
+  complete, so a lost poke delays a change but loses nothing.
 
 ## Commands
 
@@ -178,6 +182,25 @@ bun run start        # serve .output on $HOST:$PORT
   `src/server/db/db.server.test.ts` for a one-line Postgres container recipe.
 - The live Python Fernet check runs when `TASKS_FERNET_PYTHON` points at a
   Python with `cryptography` (e.g. `../backend/.venv/bin/python`).
+- The differential test `src/server/caldav/parity.server.test.ts` runs about
+  3,000 generated cases through both the Python backend and this port when
+  `TASKS_PYTHON_ORACLE` points at the backend's Python. `TASKS_PYTHON_BACKEND`
+  overrides the backend directory (default `../backend`), `TASKS_PARITY_SEED`
+  picks the seed and `TASKS_PARITY_DUMP=<file>` appends every mismatch there.
+- Two CalDAV test doubles, at different depths:
+  - `src/server/caldav/testing/fake-nextcloud.server.ts`, the port of
+    `fake_caldav.py`, is a `CalDAVTransport`: the real engine and ICS mapper
+    run against it. `fixtures.server.ts` beside it has the seeded user and
+    the golden files.
+  - `src/test/fake-nextcloud.server.ts` replaces the whole engine (FakeEngine,
+    a simple line format, not ICS) for the ops and sync logic tests.
+  - Route tests swap the engine with `setEngineFactoryForTests` or the
+    transport with `setCalDAVTransportForTests`
+    (`src/server/account/account.server.ts`). `src/test/postgres.server.ts`
+    makes migrated throwaway databases.
+- bun runs every test file in one process. A test that replaces a global
+  (`fetch`, `indexedDB`, `EventSource`) restores it in `afterEach`;
+  `bun:test` ignores a cleanup function returned from `beforeEach`.
 - Playwright lives in `e2e/`, outside `bun test`'s root. For iOS Safari use
   `homelab ios`, not an emulated viewport. Projects: `mobile-chromium-touch`
   (`*-touch` specs, CDP touch), `desktop-chromium-mouse` (`*-mouse`, smoke),
@@ -191,7 +214,8 @@ bun run start        # serve .output on $HOST:$PORT
 ## Database
 
 - Drizzle on Bun's SQL client (`drizzle-orm/bun-sql`). The pool holds at most
-  5 connections; the migrate entrypoint uses 1.
+  4 connections and the realtime LISTEN connection is the fifth, which keeps a
+  pod within ADR-0001's 5; the migrate entrypoint uses 1.
 - `DATABASE_URL` has no password in production; the password is read from
   `DATABASE_PASSWORD_FILE` each time a connection opens, so Vault rotation
   does not break new connections.
@@ -228,8 +252,14 @@ bun run start        # serve .output on $HOST:$PORT
 | `TASKS_USERS_GROUP`, `TASKS_ADMINS_GROUP`, `TASKS_AGENTS_GROUP` | group names, default `Tasks Users`, `Tasks Admins`, `Tasks Agents` |
 | `AUTHENTIK_GUEST_USERNAME` | the anonymous auto-login user, default `guest` |
 | `DEV_USER` | dev and test identity (an admin member); ignored when `NODE_ENV=production` |
+| `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
+| `HOST`, `PORT` | listen address; the image uses `0.0.0.0:3000` |
 
 Every secret above also reads from a `*_FILE` path.
+
+Logs are JSON lines on stderr with `ts`, `level`, `logger`, `msg` and extras,
+the same shape as the Python app. `/metrics` (prom-client) and `/healthz` are
+on the pod port.
 
 ## Identity
 
@@ -263,12 +293,6 @@ every 30 s with a ping NOTIFY that must come back on it, reconnects, and
 sends `resync` to every stream after a reconnect. `GET /api/events` streams
 `poke` and `resync` with a `: ping` comment every 25 s; the route lifts Bun's
 10-second idle timeout for the stream.
-| `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
-| `HOST`, `PORT` | listen address; the image uses `0.0.0.0:3000` |
-
-Logs are JSON lines on stderr with `ts`, `level`, `logger`, `msg` and extras,
-the same shape as the Python app. `/metrics` (prom-client) and `/healthz` are
-on the pod port.
 
 ## Image
 

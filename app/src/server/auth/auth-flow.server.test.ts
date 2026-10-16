@@ -310,6 +310,39 @@ describe.skipIf(!ready)("sign-in (tasks ADR-0004 popup target)", () => {
 		expect(jar.cookies.has("__Host-tasks.session_token")).toBe(false);
 	});
 
+	test("full-page sign-in keeps return_to and comes back to the screen it left", async () => {
+		mock.addUser({ username: "back@example.com", groups: ["Tasks Users"] });
+		const { hops, response } = await signIn(
+			"back@example.com",
+			"/api/signin?return_to=%2Flist%2Fwork%3Fx%3D1",
+		);
+		expect(hops[0]?.location).toBe(
+			"/api/auth/start?return=%2Fapi%2Fsignin%3Freturn_to%3D%252Flist%252Fwork%253Fx%253D1",
+		);
+		expect(hops.at(-1)?.url).toBe(`${server.origin}/list/work?x=1`);
+		expect(response.status).toBe(200);
+	});
+
+	test("with a session, /api/signin?return_to= redirects there, same-origin paths only", async () => {
+		mock.addUser({ username: "there@example.com", groups: ["Tasks Users"] });
+		const { jar } = await signIn("there@example.com");
+		const back = await get("/api/signin?return_to=%2Fview%2Ftoday", jar);
+		expect(back.status).toBe(302);
+		expect(back.headers.get("location")).toBe("/view/today");
+		for (const evil of [
+			"https://evil.example/",
+			"//evil.example/",
+			"/\\evil",
+		]) {
+			const res = await get(
+				`/api/signin?return_to=${encodeURIComponent(evil)}`,
+				jar,
+			);
+			expect(res.status).toBe(302);
+			expect(res.headers.get("location")).toBe("/");
+		}
+	});
+
 	test("an absolute return URL is not followed (no open redirect)", async () => {
 		mock.addUser({ username: "redir@example.com", groups: ["Tasks Users"] });
 		mock.session = null;

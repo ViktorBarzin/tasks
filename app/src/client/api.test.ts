@@ -10,7 +10,13 @@ import {
 
 import { CLIENT_ID_HEADER } from "#/shared/contract";
 
-import { ApiError, AuthWallError, api, clientId } from "./api";
+import {
+	AccessPendingError,
+	ApiError,
+	AuthWallError,
+	api,
+	clientId,
+} from "./api";
 
 let fetchMock: Mock<(input: string, init?: RequestInit) => Promise<Response>>;
 const realFetch = globalThis.fetch;
@@ -49,6 +55,18 @@ describe("api session detection (tasks ADR-0003/0004, now by 401)", () => {
 	it("throws AuthWallError on a 401 `unauthorized` envelope (no session)", async () => {
 		fetchMock.mockResolvedValue(envelope("unauthorized", 401));
 		await expect(api.me()).rejects.toBeInstanceOf(AuthWallError);
+	});
+
+	it("throws AccessPendingError on a 403 `access_pending` (signed in, not approved yet)", async () => {
+		fetchMock.mockResolvedValue(envelope("access_pending", 403));
+		await expect(api.me()).rejects.toBeInstanceOf(AccessPendingError);
+	});
+
+	it("keeps any other 403 an ApiError with its code", async () => {
+		fetchMock.mockResolvedValue(envelope("forbidden", 403));
+		const err = await api.sync("").catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect((err as ApiError).code).toBe("forbidden");
 	});
 
 	it("treats a 401 with no readable envelope as the auth wall too", async () => {

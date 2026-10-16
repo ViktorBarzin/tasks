@@ -7,7 +7,6 @@
 import type { ErrorEnvelope } from "#/shared/contract";
 import { CalDAVUnauthorized } from "../caldav/engine.server";
 import { getLogger } from "../logging.server";
-import { NotImplementedError } from "../not-implemented.server";
 
 const log = getLogger("tasks.errors");
 
@@ -63,10 +62,6 @@ export function toErrorResponse(err: unknown, request: Request): Response {
 			"nextcloud_unauthorized",
 			"Nextcloud rejected the stored app password; reconnect your account",
 		);
-	}
-	if (err instanceof NotImplementedError) {
-		// A contract stub a builder has not filled in yet.
-		return errorResponse(501, "not_implemented", err.message);
 	}
 	log.exception("unhandled error", err, { path, method: request.method });
 	return errorResponse(500, "internal_error", "internal server error");

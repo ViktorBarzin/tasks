@@ -1,6 +1,12 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { AuthWallError, api, clientId } from "#/client/api";
+import {
+	AccessPendingError,
+	AuthWallError,
+	api,
+	clientId,
+	PENDING_PATH,
+} from "#/client/api";
 import * as db from "#/client/db";
 import { scheduleSwUpdates } from "#/client/pwa";
 import { startLiveUpdates } from "#/client/realtime";
@@ -9,6 +15,7 @@ import { loadReplica, replica } from "#/client/replica";
 import { signIn, signinFailed, signinPending } from "#/client/signin";
 import { get } from "#/client/store";
 import {
+	accessPending,
 	deadOps,
 	needsLogin,
 	needsReconnect,
@@ -88,6 +95,7 @@ async function refreshIdentity(ui: GateControls): Promise<void> {
 		// Offline or flaky: the Replica carries the session. A lapsed session is
 		// different: say so now instead of waiting for a sync cycle.
 		if (err instanceof AuthWallError) needsLogin.set(true);
+		if (err instanceof AccessPendingError) accessPending.set(true);
 	}
 }
 
@@ -117,6 +125,10 @@ async function boot(ui: GateControls, cancelled: () => boolean): Promise<void> {
 		}
 	} catch (err) {
 		if (cancelled()) return;
+		if (err instanceof AccessPendingError) {
+			accessPending.set(true);
+			return;
+		}
 		if (err instanceof AuthWallError) {
 			// Reachable, but there is no session and this device has nothing
 			// cached to show. Asking for Nextcloud credentials here would be a
@@ -172,8 +184,14 @@ export function AppGate({ children }: { children: ReactNode }) {
 		void registerServiceWorker();
 		clearLegacyReloginMarker();
 		void boot(ui, () => cancelled);
+		// Signed in but not approved (403 access_pending): the pending page
+		// explains it and re-checks; the app itself cannot load data.
+		const unsubscribe = accessPending.subscribe((waiting) => {
+			if (waiting) window.location.assign(PENDING_PATH);
+		});
 		return () => {
 			cancelled = true;
+			unsubscribe();
 		};
 	}, [ui]);
 

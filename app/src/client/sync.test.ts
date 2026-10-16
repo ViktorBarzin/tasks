@@ -13,6 +13,7 @@ import {
 import { get } from "./store";
 import {
 	_resetSyncForTests,
+	accessPending,
 	deadOps,
 	drainOpQueue,
 	needsLogin,
@@ -72,6 +73,13 @@ function ok(results: OpResult[]): Response {
 function syncBody(payload: SyncPayload): Response {
 	return new Response(JSON.stringify(payload), {
 		status: 200,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+function jsonEnvelope(code: string, status: number): Response {
+	return new Response(JSON.stringify({ error: { code, message: code } }), {
+		status,
 		headers: { "content-type": "application/json" },
 	});
 }
@@ -492,6 +500,25 @@ describe("syncNow (full cycle)", () => {
 		expect(get(needsLogin)).toBe(true);
 		expect(get(online)).toBe(true);
 		expect(get(needsReconnect)).toBe(false);
+	});
+
+	it("flags accessPending, keeps the queue and stops retrying on a 403 access_pending", async () => {
+		timers = fakeTimeouts();
+		await db.enqueueOp(createOp("a"));
+		fetchMock.mockImplementation(async () =>
+			jsonEnvelope("access_pending", 403),
+		);
+
+		await syncNow();
+
+		expect(get(accessPending)).toBe(true);
+		expect(get(online)).toBe(true);
+		expect(get(needsLogin)).toBe(false);
+		expect(await db.opCount()).toBe(1);
+		const calls = fetchMock.mock.calls.length;
+		await timers.advance(120_000);
+		await flushEventLoop();
+		expect(fetchMock.mock.calls.length).toBe(calls);
 	});
 
 	it("coalesces concurrent calls into one in-flight cycle", async () => {

@@ -5,6 +5,7 @@ import {
 	HeadContent,
 	Outlet,
 	Scripts,
+	useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
@@ -72,7 +73,22 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 	component: RootLayout,
 });
 
+/**
+ * Pages that do not need a Connected Account or the Replica: the access
+ * pending page and the admin pages (request + approve, ADR-0001). They load
+ * through server functions and render outside the app gate.
+ */
+const UNGATED = ["/pending", "/admin"];
+
+function isUngated(pathname: string): boolean {
+	return UNGATED.some(
+		(prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+	);
+}
+
 function RootLayout() {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	if (isUngated(pathname)) return <Outlet />;
 	return (
 		<AppGate>
 			<Outlet />

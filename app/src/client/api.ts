@@ -36,6 +36,20 @@ export class AuthWallError extends Error {
 }
 
 /**
+ * Signed in, but not a member of Tasks Users yet (403 `access_pending`): the
+ * request + approve flow (ADR-0001, Sign-up) shows the pending page.
+ */
+export class AccessPendingError extends Error {
+	constructor() {
+		super("access-pending");
+		this.name = "AccessPendingError";
+	}
+}
+
+/** Where a signed-in non-member waits for approval (src/routes/pending.tsx). */
+export const PENDING_PATH = "/pending";
+
+/**
  * 401 codes that are NOT about the session: Nextcloud rejected the stored app
  * password (the client shows "reconnect"), or the one being onboarded.
  */
@@ -85,7 +99,12 @@ async function request<T>(
 			throw new ApiError(401, label, code);
 		throw new AuthWallError();
 	}
-	if (!res.ok) throw new ApiError(res.status, label, await errorCode(res));
+	if (!res.ok) {
+		const code = await errorCode(res);
+		if (res.status === 403 && code === "access_pending")
+			throw new AccessPendingError();
+		throw new ApiError(res.status, label, code);
+	}
 	if (res.status === 204) return undefined as T;
 	// An OK response that isn't JSON is a login page served in place of the
 	// API, not data.
