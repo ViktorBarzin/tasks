@@ -86,8 +86,14 @@ convention by hand.
 
 ```
 src/
-  routes/            file routes; /api/* and /healthz, /metrics are server routes
-  components/        React components (shadcn/ui in components/ui)
+  routes/            file routes; /api/* and /healthz, /metrics are server routes;
+                     UI routes: index (Home), list.$id, view.$view (all ssr: false)
+  components/        React screens and pieces, tasks.css (the iOS look), shadcn/ui
+                     in components/ui
+  client/            browser-only logic copied from the Svelte build: db (IndexedDB
+                     Replica + Op Queue), replica, sync, ops, actions, views, sort,
+                     dates, api, signin/relogin, realtime (SSE), ui/ gestures,
+                     sw/service-worker.ts; store.ts is a small svelte/store stand-in
   shared/            code for both sides: contract.ts (wire types + zod),
                      replica-contract.ts (frozen IndexedDB layout)
   server/            server-only, every file *.server.ts
@@ -101,9 +107,38 @@ src/
     realtime/        NOTIFY listener, SSE hub, notify helpers
   entrypoints/       bundled with `bun build --target bun` (migrate)
   start.ts           global request middleware (metrics, access log)
-e2e/                 Playwright, against the built server
+e2e/                 Playwright, against the built server (sw/: live service worker)
 drizzle/             migrations; 0000_baseline.sql was pulled from Alembic's schema
 ```
+
+### The UI is client-only, served as one shell
+
+Every screen renders from the IndexedDB Replica, never from the server. The
+SSR environment is built with `TSS_SHELL=true` (vite.config.ts), Start's SPA
+flag: the server answers every page with the same shell (the root route and
+AppGate's boot spinner), and the service worker precaches `/` and serves it
+for every navigation, so a deep link cold-starts offline. Do not add loaders
+or server rendering to UI routes; data comes from `src/client/`.
+
+Frozen for the cutover (ADR-0001, Pilot / Client continuity): the IndexedDB
+name, version and stores (`src/shared/replica-contract.ts`), the op wire
+format, the worker URL `/service-worker.js` and the web manifest URL. The
+React build replaces the Svelte build's worker in place and drains the ops it
+queued; `e2e/sw/cutover.spec.ts` checks exactly that.
+
+- The PWA is vite-plugin-pwa (injectManifest, `src/client/sw/`), run in the
+  client build only: per-environment it would rewrite the worker after Nitro
+  recorded its size, which truncates it when served.
+- Gesture engines in `src/client/ui/` are DOM actions in the Svelte `use:`
+  shape, attached with `useAction` (`src/components/useAction.ts`). A drop
+  commits inside React's `flushSync`, so the reorder and the transform reset
+  paint as one frame.
+- An expired session is a 401 `unauthorized` envelope (`AuthWallError`); a
+  401 `nextcloud_unauthorized` is the reconnect banner. Sign-in opens
+  `/api/signin` in a popup; the fallback navigates to
+  `/api/signin?return_to=<path>` after checking the server is reachable.
+- `/api/events` (SSE): `poke` from another device, `resync`, and every
+  (re)connect run the normal sync cycle.
 
 Contract stubs throw `NotImplementedError` (`src/server/not-implemented.server.ts`),
 which /api routes answer as `501 not_implemented`. Each stub's doc comment
@@ -144,7 +179,14 @@ bun run start        # serve .output on $HOST:$PORT
 - The live Python Fernet check runs when `TASKS_FERNET_PYTHON` points at a
   Python with `cryptography` (e.g. `../backend/.venv/bin/python`).
 - Playwright lives in `e2e/`, outside `bun test`'s root. For iOS Safari use
-  `homelab ios`, not an emulated viewport.
+  `homelab ios`, not an emulated viewport. Projects: `mobile-chromium-touch`
+  (`*-touch` specs, CDP touch), `desktop-chromium-mouse` (`*-mouse`, smoke),
+  and `pwa` (`e2e/sw/`, a live service worker behind the per-test stub origin
+  in `e2e/fixtures/pwa-server.ts`, with an OIDC stand-in). Gesture specs stub
+  /api with `page.route`; a service worker's requests cannot be stubbed that
+  way, hence the stub origin.
+- The cutover spec serves the Svelte build from `../frontend/build`;
+  `e2e/global-setup.ts` builds it with npm when it is missing.
 
 ## Database
 

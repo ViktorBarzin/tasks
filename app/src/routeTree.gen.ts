@@ -19,6 +19,8 @@ import { Route as ApiOnboardRouteImport } from './routes/api/onboard'
 import { Route as ApiOpsRouteImport } from './routes/api/ops'
 import { Route as ApiSigninRouteImport } from './routes/api/signin'
 import { Route as ApiSyncRouteImport } from './routes/api/sync'
+import { Route as ListIdRouteImport } from './routes/list.$id'
+import { Route as ViewViewRouteImport } from './routes/view.$view'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -71,6 +73,16 @@ const ApiSyncRoute = ApiSyncRouteImport.update({
   path: '/api/sync',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ListIdRoute = ListIdRouteImport.update({
+  id: '/list/$id',
+  path: '/list/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ViewViewRoute = ViewViewRouteImport.update({
+  id: '/view/$view',
+  path: '/view/$view',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -88,6 +100,8 @@ export interface FileRoutesByFullPath {
   '/api/ops': typeof ApiOpsRoute
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
+  '/list/$id': typeof ListIdRoute
+  '/view/$view': typeof ViewViewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -101,6 +115,8 @@ export interface FileRoutesByTo {
   '/api/ops': typeof ApiOpsRoute
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
+  '/list/$id': typeof ListIdRoute
+  '/view/$view': typeof ViewViewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -115,6 +131,8 @@ export interface FileRoutesById {
   '/api/ops': typeof ApiOpsRoute
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
+  '/list/$id': typeof ListIdRoute
+  '/view/$view': typeof ViewViewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -130,6 +148,8 @@ export interface FileRouteTypes {
     | '/api/ops'
     | '/api/signin'
     | '/api/sync'
+    | '/list/$id'
+    | '/view/$view'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -143,6 +163,8 @@ export interface FileRouteTypes {
     | '/api/ops'
     | '/api/signin'
     | '/api/sync'
+    | '/list/$id'
+    | '/view/$view'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -156,6 +178,8 @@ export interface FileRouteTypes {
     | '/api/ops'
     | '/api/signin'
     | '/api/sync'
+    | '/list/$id'
+    | '/view/$view'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -170,6 +194,8 @@ export interface RootRouteChildren {
   ApiOpsRoute: typeof ApiOpsRoute
   ApiSigninRoute: typeof ApiSigninRoute
   ApiSyncRoute: typeof ApiSyncRoute
+  ListIdRoute: typeof ListIdRoute
+  ViewViewRoute: typeof ViewViewRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -245,6 +271,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSyncRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/list/$id': {
+      id: '/list/$id'
+      path: '/list/$id'
+      fullPath: '/list/$id'
+      preLoaderRoute: typeof ListIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/view/$view': {
+      id: '/view/$view'
+      path: '/view/$view'
+      fullPath: '/view/$view'
+      preLoaderRoute: typeof ViewViewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -266,6 +306,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOpsRoute: ApiOpsRoute,
   ApiSigninRoute: ApiSigninRoute,
   ApiSyncRoute: ApiSyncRoute,
+  ListIdRoute: ListIdRoute,
+  ViewViewRoute: ViewViewRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
