@@ -280,14 +280,19 @@ export function AppGate({ children }: { children: ReactNode }) {
 		);
 	} else if (login) {
 		// Nothing cached to show and no session: the sign-in wall is the whole
-		// screen, not a banner over an empty app.
+		// screen, not a banner over an empty app. A cached username means this
+		// device was signed in before, so the session expired; without one this
+		// is a first visit and there is nothing to have run out.
+		const expired = username !== "";
 		body = (
 			<div className="signin-wall">
-				<h1>Session expired</h1>
+				<h1>{expired ? "Session expired" : "Sign in to Tasks"}</h1>
 				<p>
 					{failed
 						? "That sign-in window closed before it finished. This opens sign-in in the app instead."
-						: "Your sign-in has run out. Sign in again to get your tasks back."}
+						: expired
+							? "Your sign-in has run out. Sign in again to get your tasks back."
+							: "Sign in with your account to see your tasks."}
 				</p>
 				<button
 					type="button"

@@ -157,13 +157,38 @@ test("a device with nothing cached and no session gets the sign-in wall, and sig
 	});
 	pwa.authenticated = false;
 	await page.goto(`${pwa.appUrl}/`);
+	// Never signed in on this device: plain sign-in copy, not "expired".
 	await expect(
-		page.getByRole("heading", { name: "Session expired" }),
+		page.getByRole("heading", { name: "Sign in to Tasks" }),
 	).toBeVisible();
+	await expect(page.getByText(/session expired|has run out/i)).toHaveCount(0);
 	await page.getByRole("button", { name: "Sign in" }).click();
 	await expect(page.locator("#sso-login")).toBeVisible();
 	await page.getByRole("button", { name: "Continue" }).click();
 	await expect(page.locator(".list-name")).toHaveText(LISTS);
+});
+
+test("a device that signed in before but has no Replica gets the expired wall", async ({
+	page,
+	pwa,
+}) => {
+	// Signed in, but stopped at the Nextcloud step: the username is cached,
+	// no Replica is.
+	pwa.connected = false;
+	await page.goto(`${pwa.appUrl}/`);
+	await expect(
+		page.getByRole("heading", { name: "Connect Nextcloud" }),
+	).toBeVisible();
+
+	// The session lapses before the next visit.
+	pwa.authenticated = false;
+	await page.reload();
+	await expect(
+		page.getByRole("heading", { name: "Session expired" }),
+	).toBeVisible();
+	await expect(
+		page.getByText("Your sign-in has run out.", { exact: false }),
+	).toBeVisible();
 });
 
 test("a device with nothing cached signs in through the popup and lands in the app", async ({
@@ -173,9 +198,11 @@ test("a device with nothing cached signs in through the popup and lands in the a
 }) => {
 	pwa.authenticated = false;
 	await page.goto(`${pwa.appUrl}/`);
+	// Never signed in on this device: plain sign-in copy, not "expired".
 	await expect(
-		page.getByRole("heading", { name: "Session expired" }),
+		page.getByRole("heading", { name: "Sign in to Tasks" }),
 	).toBeVisible();
+	await expect(page.getByText(/session expired|has run out/i)).toHaveCount(0);
 	const [popup] = await Promise.all([
 		context.waitForEvent("page"),
 		page.getByRole("button", { name: "Sign in" }).click(),

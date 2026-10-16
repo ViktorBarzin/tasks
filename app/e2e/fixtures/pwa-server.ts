@@ -52,6 +52,8 @@ export interface PwaServer {
 	/** "react": the TypeScript build; "svelte": the old static build. */
 	mode: "react" | "svelte";
 	authenticated: boolean;
+	/** What /api/me reports: false is a signed-in user who has not connected Nextcloud yet. */
+	connected: boolean;
 	/** When true, POST /api/ops without an X-Tasks-Client-Id header gets a 503. */
 	opsNeedClientId: boolean;
 	lists: StubList[];
@@ -156,6 +158,7 @@ export async function startPwaServer(options: {
 		ssoUrl,
 		mode: "react",
 		authenticated: true,
+		connected: true,
 		opsNeedClientId: false,
 		lists: options.lists ?? [
 			{ id: "l-a", name: "Alpha", order: 0, sort_mode: null, deleted: false },
@@ -251,7 +254,7 @@ export async function startPwaServer(options: {
 		}
 
 		if (path === "/api/me")
-			return json(res, { username: "e2e", connected: true });
+			return json(res, { username: "e2e", connected: state.connected });
 
 		if (path === "/api/sync") {
 			state.syncCount++;
