@@ -334,7 +334,14 @@ export function rollForward(
 	}
 
 	if (due !== null) {
-		const duration = keyOf(due.wall, domainOf(due)) - baseKey;
+		// Python subtracts aware datetimes that share a tzinfo object (the same
+		// TZID) on the wall clock, and others as instants.
+		const sameZone =
+			(base.kind === "zone" && due.kind === "zone" && base.tzid === due.tzid) ||
+			domain.kind === "naive";
+		const duration = sameZone
+			? wallMs(due.wall) - wallMs(base.wall)
+			: keyOf(due.wall, domainOf(due)) - baseKey;
 		setProp(vtodo, "dtstart", inFormOf(base, next));
 		const dueWall = wallFromMs(wallMs(next) + duration);
 		// Python adds the duration to the base-zoned next occurrence, then

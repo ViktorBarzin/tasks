@@ -258,6 +258,19 @@ describe("DTSTART / DUE combinations", () => {
 		expect(decoded(todo, "DUE")).toBe("2026-07-02T09:00:00+00:00");
 	});
 
+	test("a same-zone duration is kept on the wall clock across DST", () => {
+		// Python subtracts datetimes sharing a tzinfo on the wall clock: 2d22h
+		// here, although the instants are 2d23h apart (EDT to EST).
+		const todo = parseVtodo(
+			"DTSTART;TZID=America/New_York:20271104T130000",
+			"DUE;TZID=America/New_York:20271107T110000",
+			"RRULE:FREQ=DAILY;INTERVAL=3",
+		);
+		expect(roll(todo, "2027-11-01T13:11:00Z", "UTC")).toBe(true);
+		expect(decoded(todo, "DTSTART")).toBe("2027-11-07T13:00:00-05:00");
+		expect(decoded(todo, "DUE")).toBe("2027-11-10T11:00:00-05:00");
+	});
+
 	test("DTSTART only rolls DTSTART", () => {
 		const todo = parseVtodo("DTSTART:20260701T080000Z", "RRULE:FREQ=DAILY");
 		expect(roll(todo, "2026-07-01T12:00:00Z")).toBe(true);

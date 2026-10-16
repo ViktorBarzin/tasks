@@ -240,6 +240,20 @@ describe("applyFields", () => {
 		expect(parseTask(modified)?.title).toBe("Buy milk, eggs; call “Анка”");
 	});
 
+	test("backslashes round trip exactly (divergence: icalendar dropped them)", () => {
+		// icalendar read `a\\\,b` back as `a,b`; ical.js returns what was written.
+		for (const title of ["a\\,b", ";\\\\", "C:\\path\\n"]) {
+			const modified = applyFields(
+				loadGolden("nextcloud_simple.ics"),
+				fields({ title, notes: title }),
+				NOW,
+			);
+			const parsed = parseTask(modified);
+			expect(parsed?.title).toBe(title);
+			expect(parsed?.notes).toBe(title);
+		}
+	});
+
 	test("due edit moves DTSTART with it and preserves RRULE", () => {
 		const original = loadGolden("apple_recurring_alarm.ics");
 		const modified = applyFields(
