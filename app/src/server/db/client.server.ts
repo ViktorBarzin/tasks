@@ -12,6 +12,7 @@ import { SQL } from "bun";
 import { drizzle } from "drizzle-orm/bun-sql";
 
 import { getDatabaseSettings } from "../config.server";
+import { processSingleton } from "../singleton.server";
 import * as schema from "./schema.server";
 
 /**
@@ -50,22 +51,25 @@ export function createDb(client: SQL) {
 
 export type Db = ReturnType<typeof createDb>;
 
-let shared: { client: SQL; db: Db } | null = null;
+/** The pool, once per process (src/server/singleton.server.ts). */
+const pool = processSingleton("db.pool", () => ({
+	shared: null as { client: SQL; db: Db } | null,
+}));
 
 /** The app's shared pool (max APP_POOL_MAX connections). */
 export function getDb(): Db {
-	if (shared === null) {
+	if (pool.shared === null) {
 		const client = createSqlClient();
-		shared = { client, db: createDb(client) };
+		pool.shared = { client, db: createDb(client) };
 	}
-	return shared.db;
+	return pool.shared.db;
 }
 
 /** Close the shared pool (graceful shutdown, tests). */
 export async function closeDb(): Promise<void> {
-	if (shared !== null) {
-		const { client } = shared;
-		shared = null;
+	if (pool.shared !== null) {
+		const { client } = pool.shared;
+		pool.shared = null;
 		await client.close();
 	}
 }

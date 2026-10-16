@@ -5,16 +5,18 @@ name: Build and Push (TypeScript app)
 # keeps building the live Python image: GitHub-hosted runners build and push
 # to GHCR, so the homelab never sees build IO or registry pushes.
 #
-# Runs only when app/** (or this file) changes on master. It does not tag
-# semver (build.yml's svu step owns the repo's vX.Y.Z tags) and does not
-# trigger a deploy: the TypeScript build has no Deployment until the cutover
-# (ADR-0001, Pilot / Cutover) adds one.
+# Runs when app/** (or this file) changes on master or on a wizard/ts-*
+# branch, so the comparison image for the cutover's second host exists before
+# anything lands on master. Branch builds push only the sha tag; `latest`
+# moves on master only. It does not tag semver (build.yml's svu step owns the
+# repo's vX.Y.Z tags) and does not trigger a deploy: the TypeScript build has
+# no Deployment until the cutover (ADR-0001, Pilot / Cutover) adds one.
 #
 # Committed on the FORGEJO side (the mirror is one-way; commits made on GitHub
 # are overwritten by the next sync).
 on:
   push:
-    branches: [master]
+    branches: [master, "wizard/ts-*"]
     paths:
       - "app/**"
       - ".github/workflows/build-ts.yml"
@@ -47,8 +49,23 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://postgres:ci@127.0.0.1:5432/postgres
+      # The Python build is the correctness oracle until it is retired: the
+      # differential parity suite and the Fernet cross-decrypt test run
+      # against backend/'s own virtualenv.
+      TASKS_PYTHON_ORACLE: ${{ github.workspace }}/backend/.venv/bin/python
+      TASKS_FERNET_PYTHON: ${{ github.workspace }}/backend/.venv/bin/python
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install the Python oracle (backend/)
+        working-directory: backend
+        run: |
+          pipx install poetry
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction --only main
+          test -x .venv/bin/python
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
@@ -96,7 +113,7 @@ jobs:
           provenance: false
           tags: |
             ghcr.io/viktorbarzin/tasks-ts:${{ steps.meta.outputs.sha }}
-            ghcr.io/viktorbarzin/tasks-ts:latest
+            ${{ github.ref == 'refs/heads/master' && 'ghcr.io/viktorbarzin/tasks-ts:latest' || '' }}
           # A scope of its own, so this build and build.yml's do not evict
           # each other's layer cache.
           cache-from: type=gha,scope=tasks-ts

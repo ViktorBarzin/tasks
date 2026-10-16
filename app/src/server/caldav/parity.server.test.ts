@@ -70,7 +70,12 @@ type BaseKind =
 	| "floating"
 	| "date"
 	| "Europe/Sofia"
-	| "America/New_York";
+	| "America/New_York"
+	// Windows names and a slashed IANA name, with no VTIMEZONE: icalendar
+	// maps them to IANA zones.
+	| "W. Europe Standard Time"
+	| "Eastern Standard Time"
+	| "/Europe/Sofia";
 
 function timeLine(name: string, kind: BaseKind, wall: Date): string {
 	switch (kind) {
@@ -96,6 +101,9 @@ const completeCase: fc.Arbitrary<Case> = fc
 			"date",
 			"Europe/Sofia",
 			"America/New_York",
+			"W. Europe Standard Time",
+			"Eastern Standard Time",
+			"/Europe/Sofia",
 		),
 		base: fc.date({
 			min: new Date("2025-01-01T00:00:00Z"),
@@ -170,6 +178,79 @@ const completeCase: fc.Arbitrary<Case> = fc
 			props.map((p) => `${p}\r\n`).join("") +
 			"END:VTODO\r\nEND:VCALENDAR\r\n";
 		const now = new Date(base.getTime() + g.nowMinutes * 60_000);
+		return {
+			kind: "complete" as const,
+			ics,
+			now: now.toISOString().replace("Z", "+00:00"),
+			tz: g.tz,
+		};
+	});
+
+/**
+ * Sub-daily rules (SECONDLY/MINUTELY/HOURLY), which the port jumps through
+ * instead of walking from the base. The gap to "now" is bounded per frequency
+ * so dateutil, which walks every occurrence, stays fast. BYWEEKNO is left out:
+ * the port reports it as unsupported on purpose (recurrence.server.test.ts).
+ */
+const subDailyCase: fc.Arbitrary<Case> = fc
+	.record({
+		kind: fc.constantFrom<BaseKind>(
+			"utc",
+			"floating",
+			"date",
+			"Europe/Sofia",
+			"America/New_York",
+		),
+		base: fc.date({
+			min: new Date("2025-01-01T00:00:00Z"),
+			max: new Date("2026-12-28T00:00:00Z"),
+			noInvalidDate: true,
+		}),
+		freq: fc.constantFrom("SECONDLY", "MINUTELY", "HOURLY"),
+		interval: fc.option(fc.integer({ min: 1, max: 45 }), { nil: undefined }),
+		byhour: fc.option(fc.subarray([0, 6, 9, 10, 17, 23], { minLength: 1 }), {
+			nil: undefined,
+		}),
+		byminute: fc.option(fc.subarray([0, 15, 30, 59], { minLength: 1 }), {
+			nil: undefined,
+		}),
+		until: fc.option(fc.integer({ min: -2, max: 30 }), { nil: undefined }),
+		layout: fc.constantFrom("due", "both"),
+		gapFraction: fc.double({ min: -0.01, max: 1, noNaN: true }),
+		tz: fc.constantFrom("Europe/Sofia", "UTC", "America/New_York"),
+	})
+	.map((g) => {
+		const maxGapMinutes = {
+			SECONDLY: 6 * 60,
+			MINUTELY: 10 * 24 * 60,
+			HOURLY: 400 * 24 * 60,
+		}[g.freq];
+		const base = new Date(g.base);
+		base.setUTCSeconds(17, 0);
+		const parts = [`FREQ=${g.freq}`];
+		if (g.interval !== undefined) parts.push(`INTERVAL=${g.interval}`);
+		if (g.byhour && g.freq !== "HOURLY")
+			parts.push(`BYHOUR=${g.byhour.join(",")}`);
+		if (g.byminute && g.freq !== "MINUTELY" && g.freq !== "SECONDLY")
+			parts.push(`BYMINUTE=${g.byminute.join(",")}`);
+		if (g.until !== undefined) {
+			const until = new Date(base.getTime() + g.until * DAY);
+			parts.push(`UNTIL=${ymd(until)}T${hms(until)}Z`);
+		}
+		const props = [timeLine("DUE", g.kind, base)];
+		if (g.layout === "both")
+			props.unshift(
+				timeLine("DTSTART", g.kind, new Date(base.getTime() - 3_600_000)),
+			);
+		props.push(`RRULE:${parts.join(";")}`);
+		const ics =
+			"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//parity//EN\r\nBEGIN:VTODO\r\n" +
+			"UID:p-2\r\nSUMMARY:p\r\nSTATUS:NEEDS-ACTION\r\n" +
+			props.map((p) => `${p}\r\n`).join("") +
+			"END:VTODO\r\nEND:VCALENDAR\r\n";
+		const now = new Date(
+			base.getTime() + Math.round(g.gapFraction * maxGapMinutes) * 60_000,
+		);
 		return {
 			kind: "complete" as const,
 			ics,
@@ -406,6 +487,10 @@ describe.skipIf(!pythonBin)("parity with the Python build", () => {
 	test("completion roll-forward", () => {
 		compare(sample(completeCase, 1500, 1));
 	}, 60_000);
+
+	test("sub-daily roll-forward from an old base", () => {
+		compare(sample(subDailyCase, 80, 6));
+	}, 180_000);
 
 	test("applyFields on the goldens", () => {
 		compare(sample(fieldsCase, 600, 2));

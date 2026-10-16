@@ -16,7 +16,9 @@
  * the service worker does not answer would do exactly that, so the server is
  * probed first and the app stays put when it is unreachable.
  */
-import { SIGNIN_PATH } from "#/shared/contract";
+import { CLIENT_ID_HEADER, SIGNIN_PATH } from "#/shared/contract";
+
+import { clientId } from "./api";
 
 /** Where the server sends the window after sign-in (a same-origin path). */
 export const RETURN_TO_PARAM = "return_to";
@@ -44,7 +46,13 @@ const defaults = (): ReloginDeps => ({
 	reachable: async () => {
 		try {
 			// /api/me has no side effects; a 401 still proves the network is up.
-			await fetch("/api/me", { cache: "no-store", credentials: "same-origin" });
+			await fetch("/api/me", {
+				cache: "no-store",
+				credentials: "same-origin",
+				// Marks this build, so the answer is a 401, not the redirect
+				// meant for the Svelte build (src/client/api.ts, clientId).
+				headers: { [CLIENT_ID_HEADER]: clientId() },
+			});
 			return true;
 		} catch {
 			return false;

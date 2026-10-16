@@ -61,8 +61,12 @@ const NON_SESSION_401 = new Set([
 let id: string | null = null;
 
 /**
- * This tab's id, sent with POST /api/ops so the realtime poke those ops cause
- * can be told apart from another device's (src/client/realtime.ts).
+ * This tab's id, sent on every /api request. On POST /api/ops it tells the
+ * realtime poke those ops cause apart from another device's
+ * (src/client/realtime.ts). On every request it marks the caller as this
+ * build: the server redirects a same-origin request without it (the Svelte
+ * build, during the cutover) instead of answering 401
+ * (src/server/http/api.server.ts, legacyClientRedirect).
  */
 export function clientId(): string {
 	id ??= crypto.randomUUID();
@@ -89,6 +93,7 @@ async function request<T>(
 		headers: {
 			accept: "application/json",
 			...(init?.body ? { "content-type": "application/json" } : {}),
+			[CLIENT_ID_HEADER]: clientId(),
 			...extraHeaders,
 		},
 	});
@@ -134,10 +139,9 @@ export const api = {
 	},
 
 	ops(ops: Op[]): Promise<OpsResponse> {
-		return request<OpsResponse>(
-			"/api/ops",
-			{ method: "POST", body: JSON.stringify({ ops }) },
-			{ [CLIENT_ID_HEADER]: clientId() },
-		);
+		return request<OpsResponse>("/api/ops", {
+			method: "POST",
+			body: JSON.stringify({ ops }),
+		});
 	},
 };

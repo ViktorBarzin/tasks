@@ -34,8 +34,18 @@ export interface RealtimeDeps {
 export interface Realtime {
 	/** Reopen at once if the browser gave up (after sign-in, online, focus). */
 	reconnectNow(): void;
+	/**
+	 * Back in the foreground after `hiddenForMs`. Past RESUME_RECONNECT_MS the
+	 * connection is reopened even if it looks open: iOS can leave a
+	 * backgrounded standalone PWA's socket dead with readyState still OPEN,
+	 * and the server's heartbeat is an SSE comment the page never sees.
+	 */
+	resume(hiddenForMs: number): void;
 	stop(): void;
 }
+
+/** Hidden at least this long: reopen the stream on return (about the 25 s heartbeat). */
+export const RESUME_RECONNECT_MS = 30_000;
 
 /** EventSource.CLOSED: the browser will not retry by itself. */
 const CLOSED = 2;
@@ -104,9 +114,17 @@ export function startRealtime(deps: RealtimeDeps): Realtime {
 
 	connect();
 
+	function reconnectNow(): void {
+		if (stopped || (source && source.readyState !== CLOSED)) return;
+		retryDelay = 0;
+		connect();
+	}
+
 	return {
-		reconnectNow() {
-			if (stopped || (source && source.readyState !== CLOSED)) return;
+		reconnectNow,
+		resume(hiddenForMs) {
+			if (stopped) return;
+			if (hiddenForMs < RESUME_RECONNECT_MS) return reconnectNow();
 			retryDelay = 0;
 			connect();
 		},
@@ -141,8 +159,14 @@ export function startLiveUpdates(deps: {
 	});
 	live = current;
 	window.addEventListener("online", () => current.reconnectNow());
+	let hiddenAt: number | null = null;
 	document.addEventListener("visibilitychange", () => {
-		if (document.visibilityState === "visible") current.reconnectNow();
+		if (document.visibilityState === "hidden") {
+			hiddenAt = Date.now();
+			return;
+		}
+		current.resume(hiddenAt === null ? 0 : Date.now() - hiddenAt);
+		hiddenAt = null;
 	});
 	deps.onSignedIn(() => current.reconnectNow());
 }

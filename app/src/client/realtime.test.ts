@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import { EVENTS_PATH } from "#/shared/contract";
 
-import { type EventSourceLike, startRealtime } from "./realtime";
+import {
+	type EventSourceLike,
+	RESUME_RECONNECT_MS,
+	startRealtime,
+} from "./realtime";
 import { type FakeTimeouts, fakeTimeouts } from "./test-timers";
 
 const CONNECTING = 0;
@@ -142,6 +146,29 @@ describe("realtime: SSE pokes drive delta syncs (ADR-0001, Pilot / Realtime)", (
 		// A live connection is left alone.
 		last().emit("open");
 		rt.reconnectNow();
+		expect(sources).toHaveLength(2);
+	});
+
+	it("resuming after a long time hidden reopens even a connection that looks open (iOS half-open socket)", () => {
+		const { rt, sources, last, onResync } = harness();
+		last().emit("open");
+		expect(onResync).toHaveBeenCalledTimes(1);
+		// Short trips to the background leave a live stream alone.
+		rt.resume(RESUME_RECONNECT_MS - 1);
+		expect(sources).toHaveLength(1);
+		// After longer, the socket may be dead while readyState still says OPEN.
+		rt.resume(RESUME_RECONNECT_MS);
+		expect(sources).toHaveLength(2);
+		expect(sources[0]?.closed).toBe(true);
+		last().emit("open");
+		expect(onResync).toHaveBeenCalledTimes(2);
+	});
+
+	it("resume after a short time still reopens a given-up connection", () => {
+		timers = fakeTimeouts();
+		const { rt, sources, last } = harness();
+		last().fail();
+		rt.resume(1_000);
 		expect(sources).toHaveLength(2);
 	});
 

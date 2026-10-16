@@ -12,17 +12,22 @@
  * 4. The React app drains the Svelte build's queue: the server receives
  *    exactly the ops the Svelte build stored, byte for byte.
  *
- * The stub holds back POST /api/ops that lack X-Tasks-Client-Id (503, which
- * both builds treat as "retry later") after the swap, so the ops cannot be
- * drained by the old page while the new worker installs: what arrives was
+ * The first test holds back POST /api/ops that lack X-Tasks-Client-Id (503,
+ * which both builds treat as "retry later") after the swap, so the ops cannot
+ * be drained by the old page while the new worker installs: what arrives was
  * sent by the React build.
+ *
+ * The second test is what production does: the browser has no Better Auth
+ * session on the new server, so both the old page and the React build get a
+ * 401 first. The queue must survive both, and drain after a popup sign-in.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 
 import { expect, installedPwa, test } from "../fixtures/pwa";
+import type { PwaServer } from "../fixtures/pwa-server";
 import { SVELTE_BUILD } from "../global-setup";
 
 interface QueuedRow {
@@ -32,28 +37,29 @@ interface QueuedRow {
 	attempts: number;
 }
 
-/** The raw `op_queue` rows, read straight from IndexedDB (name `tasks`, v2). */
-async function readQueue(page: Page): Promise<QueuedRow[]> {
+/** Every row of one store, read straight from IndexedDB (name `tasks`, v2). */
+async function readStore<T>(page: Page, store: string): Promise<T[]> {
 	return page.evaluate(
-		() =>
-			new Promise<QueuedRow[]>((resolve, reject) => {
+		(name) =>
+			new Promise<T[]>((resolve, reject) => {
 				const open = indexedDB.open("tasks");
 				open.onerror = () => reject(open.error);
 				open.onsuccess = () => {
 					const db = open.result;
-					const req = db
-						.transaction("op_queue")
-						.objectStore("op_queue")
-						.getAll();
+					const req = db.transaction(name).objectStore(name).getAll();
 					req.onsuccess = () => {
 						db.close();
-						resolve(req.result as QueuedRow[]);
+						resolve(req.result as T[]);
 					};
 					req.onerror = () => reject(req.error);
 				};
 			}),
+		store,
 	);
 }
+
+/** The raw `op_queue` rows. */
+const readQueue = (page: Page) => readStore<QueuedRow>(page, "op_queue");
 
 async function databaseShape(page: Page) {
 	return page.evaluate(
@@ -74,11 +80,17 @@ async function databaseShape(page: Page) {
 	);
 }
 
-test("ops the Svelte build queued offline drain from the React build after the swap", async ({
-	page,
-	context,
-	pwa,
-}) => {
+interface Fixtures {
+	page: Page;
+	context: BrowserContext;
+	pwa: PwaServer;
+}
+
+/**
+ * Steps 1 and 2: the Svelte PWA installed and synced, then a quick-add and a
+ * list rename made offline. Returns the queued rows and the database layout.
+ */
+async function queueOfflineOnSvelte({ page, context, pwa }: Fixtures) {
 	expect(
 		existsSync(join(SVELTE_BUILD, "index.html")),
 		`no Svelte build at ${SVELTE_BUILD} (e2e/global-setup.ts builds it)`,
@@ -115,24 +127,46 @@ test("ops the Svelte build queued offline drain from the React build after the s
 	const queued = await readQueue(page);
 	expect(queued.map((q) => q.op.kind)).toEqual(["task_create", "list_rename"]);
 	expect(pwa.batches).toEqual([]);
+	return { queued, svelteShape };
+}
+
+/** Wait until the new worker took over and reloaded the page onto the React app. */
+async function onReactBuild(page: Page) {
+	// The Svelte build's assets live under /_app/, the React build's under /assets/.
+	await page.waitForFunction(
+		() => !!document.querySelector('link[rel="stylesheet"][href^="/assets/"]'),
+		undefined,
+		{ timeout: 30_000 },
+	);
+}
+
+async function runUpdateCheck(page: Page) {
+	await page.evaluate(async () => {
+		const registration = await navigator.serviceWorker.getRegistration();
+		await registration?.update();
+	});
+}
+
+test("ops the Svelte build queued offline drain from the React build after the swap", async ({
+	page,
+	context,
+	pwa,
+}) => {
+	const { queued, svelteShape } = await queueOfflineOnSvelte({
+		page,
+		context,
+		pwa,
+	});
 
 	// 3. Deploy the React build, come back online, and let the installed PWA
 	// run its update check (what it does hourly and on every foreground).
 	pwa.mode = "react";
 	pwa.opsNeedClientId = true;
 	await context.setOffline(false);
-	await page.evaluate(async () => {
-		const registration = await navigator.serviceWorker.getRegistration();
-		await registration?.update();
-	});
+	await runUpdateCheck(page);
 
 	// The new worker takes over and the page reloads onto the React app.
-	// (The Svelte build's assets live under /_app/, the React build's under /assets/.)
-	await page.waitForFunction(
-		() => !!document.querySelector('link[rel="stylesheet"][href^="/assets/"]'),
-		undefined,
-		{ timeout: 30_000 },
-	);
+	await onReactBuild(page);
 	await expect(page.locator(".large-title")).toHaveText("Groceries");
 
 	// 4. The React build drained the old queue, in order, byte-identical.
@@ -164,4 +198,51 @@ test("ops the Svelte build queued offline drain from the React build after the s
 	});
 	expect(cachedPaths.names).not.toContain("tasks-assets-v1");
 	expect(cachedPaths.paths.some((p) => p.startsWith("/_app/"))).toBe(false);
+});
+
+test("with no session on the new server, the queue survives both builds' 401 and drains after sign-in", async ({
+	page,
+	context,
+	pwa,
+}) => {
+	const { queued } = await queueOfflineOnSvelte({ page, context, pwa });
+
+	// 3. The swap as production sees it: the React server has no Better Auth
+	// session for this browser and answers /api with a 401 envelope.
+	pwa.mode = "react";
+	pwa.authenticated = false;
+	await context.setOffline(false);
+
+	// The still-running Svelte page syncs on focus before the update check.
+	// The server redirects its requests (legacyClientRedirect), so it shows
+	// "Session expired", not the Nextcloud reconnect banner, and keeps the queue.
+	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+	await expect.poll(() => pwa.unauthorized).toBeGreaterThan(0);
+	await expect(page.getByText("Session expired")).toBeVisible();
+	await expect(page.getByText(/Nextcloud connection failed/)).toHaveCount(0);
+	expect(await readQueue(page)).toHaveLength(2);
+	expect(pwa.batches).toEqual([]);
+
+	// 4. The update check moves the page onto the React build, which also gets
+	// a 401 and asks the person to sign in; nothing has been sent or dropped.
+	await runUpdateCheck(page);
+	await onReactBuild(page);
+	const signIn = page.getByRole("button", { name: /session expired/i });
+	await expect(signIn).toBeVisible({ timeout: 15_000 });
+	expect(await readQueue(page)).toHaveLength(2);
+	expect(pwa.batches).toEqual([]);
+
+	// 5. Popup sign-in, then the queue drains byte-identical, nothing dead.
+	const [popup] = await Promise.all([
+		context.waitForEvent("page"),
+		signIn.click(),
+	]);
+	await popup.getByRole("button", { name: "Continue" }).click();
+	await expect
+		.poll(() => pwa.batches.flatMap((b) => b.ops).length, { timeout: 15_000 })
+		.toBe(2);
+	const sent = pwa.batches.flatMap((b) => b.ops);
+	expect(JSON.stringify(sent)).toBe(JSON.stringify(queued.map((q) => q.op)));
+	await expect.poll(async () => (await readQueue(page)).length).toBe(0);
+	expect(await readStore(page, "dead_ops")).toEqual([]);
 });

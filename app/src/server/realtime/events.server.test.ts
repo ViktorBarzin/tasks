@@ -94,7 +94,9 @@ async function open(): Promise<{
 async function listenerUp(): Promise<number> {
 	const deadline = Date.now() + 10_000;
 	for (;;) {
-		const metrics = await (await fetch(`${server.origin}/metrics`)).text();
+		const metrics = await (
+			await fetch(`${server.metricsOrigin}/metrics`)
+		).text();
 		const rows = await sql`
 			select pid from pg_stat_activity
 			where datname = current_database() and query ilike 'listen%tasks_ops%'`;
@@ -166,7 +168,7 @@ describe.skipIf(!ready)("GET /api/events", () => {
 	}, 40_000);
 
 	test("the gauges are exported on /metrics", async () => {
-		const text = await (await fetch(`${server.origin}/metrics`)).text();
+		const text = await (await fetch(`${server.metricsOrigin}/metrics`)).text();
 		expect(text).toMatch(/^realtime_listen_connected 1$/m);
 		expect(text).toMatch(/^realtime_last_notify_age_seconds \d/m);
 	});

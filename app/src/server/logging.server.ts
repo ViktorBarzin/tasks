@@ -88,6 +88,8 @@ export interface Logger {
 	error(msg: string, extra?: LogExtra): void;
 	/** ERROR with the error's stack under `exc`, like Python's logger.exception. */
 	exception(msg: string, err: unknown, extra?: LogExtra): void;
+	/** Any level, with an optional error under `exc`. */
+	record(level: LogLevel, msg: string, extra?: LogExtra, err?: unknown): void;
 }
 
 export function getLogger(name: string): Logger {
@@ -106,5 +108,6 @@ export function getLogger(name: string): Logger {
 		warning: (msg, extra) => emit("WARNING", msg, extra),
 		error: (msg, extra) => emit("ERROR", msg, extra),
 		exception: (msg, err, extra) => emit("ERROR", msg, extra, err),
+		record: emit,
 	};
 }

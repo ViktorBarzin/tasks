@@ -315,6 +315,65 @@ describe("not recurring / degenerate", () => {
 	});
 });
 
+describe("rules ical.js iterates differently from dateutil", () => {
+	test("BYWEEKNO is reported as unsupported instead of rolling to the wrong week", () => {
+		// dateutil gives 2027-01-11 (ISO week 2 of 2027); ical.js lands on
+		// 2026-01-12, which is ISO week 3. A per-op error beats a wrong date.
+		const todo = parseVtodo(
+			"DUE;VALUE=DATE:20260105",
+			"RRULE:FREQ=YEARLY;BYWEEKNO=2;BYDAY=MO",
+		);
+		expect(() => roll(todo, "2026-01-06T12:00:00Z")).toThrow(RecurrenceError);
+		expect(decoded(todo, "DUE")).toBe("2026-01-05");
+	});
+
+	// Expected values from the Python build (dateutil), which walked every
+	// occurrence since the base; the port must not give up on an old base.
+	test.each([
+		[
+			"DUE:20250701T000000Z",
+			"FREQ=MINUTELY",
+			"2026-07-03T12:00:30Z",
+			"2026-07-03T12:01:00+00:00",
+		],
+		[
+			"DUE;TZID=Europe/Sofia:20250301T093000",
+			"FREQ=MINUTELY;INTERVAL=7",
+			"2026-07-03T12:00:30Z",
+			"2026-07-03T15:04:00+03:00",
+		],
+		[
+			"DUE;TZID=Europe/Sofia:20240301T093000",
+			"FREQ=MINUTELY;INTERVAL=7;BYHOUR=9,10",
+			"2026-11-03T12:00:30Z",
+			"2026-11-04T09:05:00+02:00",
+		],
+		[
+			"DUE:19600101T000000Z",
+			"FREQ=HOURLY;INTERVAL=5;BYMINUTE=0,30",
+			"2026-07-03T12:00:30Z",
+			"2026-07-03T15:00:00+00:00",
+		],
+		[
+			"DUE:20250701T000000",
+			"FREQ=SECONDLY;INTERVAL=13",
+			"2026-07-03T12:00:30Z",
+			"2026-07-03T15:00:35",
+		],
+		[
+			"DUE;VALUE=DATE:20200101",
+			"FREQ=HOURLY;INTERVAL=7",
+			"2026-07-03T12:00:30Z",
+			"2026-07-03",
+		],
+	])("%s %s completed at %s rolls to %s", (due, rule, now, expected) => {
+		const todo = parseVtodo(due, `RRULE:${rule}`);
+		expect(roll(todo, now)).toBe(true);
+		expect(decoded(todo, "DUE")).toBe(expected);
+		expect(ruleText(todo)).toBe(rule);
+	});
+});
+
 // -- property: COUNT bookkeeping matches a closed-form oracle
 
 const BASE_MS = Date.UTC(2026, 6, 1, 6, 30);

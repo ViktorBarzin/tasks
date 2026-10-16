@@ -162,10 +162,14 @@ function requireStr(op: WireOp, field: string): string {
 	return value;
 }
 
-/** Python's `isinstance(value, int) and not isinstance(value, bool)`. */
+/**
+ * Python's `isinstance(value, int) and not isinstance(value, bool)`, limited
+ * to safe integers: JSON numbers past 2^53 are not exact in JavaScript (and
+ * `1e21` was a float to Python), so they are a per-op error, not a 500.
+ */
 function requireInt(op: WireOp, field: string): number {
 	const value = op[field];
-	if (typeof value !== "number" || !Number.isInteger(value)) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value)) {
 		throw new OpError(`${op.kind} requires an integer ${field}`);
 	}
 	return value;

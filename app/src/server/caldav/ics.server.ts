@@ -90,17 +90,71 @@ export type OpTaskFields = Partial<Record<keyof TaskFields, unknown>>;
 
 // ---------------------------------------------------------------- parsing
 
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+const RECUR_LINE = /^(RRULE|EXRULE)((?:;[^:]*)?):(.*)$/i;
+
+/** Holds an RRULE ical.js cannot parse, so a read can still show the task. */
+const UNPARSED_RRULE = "X-TASKS-UNPARSED-RRULE";
+
+/** The ICS with folded lines joined and each line passed through `map`. */
+function mapLines(ics: string, map: (line: string) => string): string {
+	return ics
+		.replace(/\r?\n[ \t]/g, "")
+		.split(/\r?\n/)
+		.map(map)
+		.join("\r\n");
 }
 
-/** Calendar.from_ical: exactly one top-level component, else MapperError. */
-function parseComponent(ics: string): IcalComponent {
-	let jcal: unknown;
+/**
+ * RRULE / EXRULE values upper-cased. RFC 5545 recur values are
+ * case-insensitive and icalendar accepted `freq=daily`; ical.js does not.
+ */
+function upperCaseRecurValues(ics: string): string {
+	return mapLines(ics, (line) => {
+		const m = RECUR_LINE.exec(line);
+		return m ? `${m[1]}${m[2]}:${(m[3] ?? "").toUpperCase()}` : line;
+	});
+}
+
+/** RRULE lines renamed to an X- property, which ical.js keeps as text. */
+function quarantineRrules(ics: string): string {
+	return mapLines(ics, (line) => {
+		const m = RECUR_LINE.exec(line);
+		return m && m[1]?.toUpperCase() === "RRULE"
+			? `${UNPARSED_RRULE}${m[2]}:${m[3]}`
+			: line;
+	});
+}
+
+function parseJcal(ics: string): unknown {
 	try {
-		jcal = ICAL.parse(ics);
+		return ICAL.parse(ics);
 	} catch (err) {
-		throw new MapperError(`unparseable ICS: ${errorMessage(err)}`);
+		return err instanceof Error ? err : new Error(String(err));
+	}
+}
+
+/**
+ * Calendar.from_ical: exactly one top-level component, else MapperError.
+ *
+ * Recur values ical.js rejects are retried upper-cased (as icalendar read
+ * them). With `forRead`, an RRULE that still does not parse is kept as an
+ * X- property, so sync can show the task as recurring, as icalendar's lenient
+ * parse did; writes still fail on it (MapperError), so a broken rule is never
+ * dropped from the stored object.
+ */
+function parseComponent(ics: string, forRead = false): IcalComponent {
+	let jcal = parseJcal(ics);
+	if (jcal instanceof Error) {
+		const upper = upperCaseRecurValues(ics);
+		const retried = parseJcal(upper);
+		if (!(retried instanceof Error)) jcal = retried;
+		else if (forRead) {
+			const quarantined = parseJcal(quarantineRrules(upper));
+			if (!(quarantined instanceof Error)) jcal = quarantined;
+		}
+	}
+	if (jcal instanceof Error) {
+		throw new MapperError(`unparseable ICS: ${jcal.message}`);
 	}
 	if (!Array.isArray(jcal) || jcal.length === 0) {
 		throw new MapperError("unparseable ICS: no component found");
@@ -229,7 +283,7 @@ function decodeCompleted(todo: IcalComponent): [boolean, string | null] {
 
 /** Map one CalDAV object to a Task; null when it holds no VTODO. Unparseable ICS: MapperError. */
 export function parseTask(ics: string): ParsedTask | null {
-	const cal = parseComponent(ics);
+	const cal = parseComponent(ics, true);
 	const todo = masterTodo(cal);
 	if (todo === null) return null;
 	const [due, dueHasTime] = decodeDue(todo);
@@ -244,7 +298,9 @@ export function parseTask(ics: string): ParsedTask | null {
 		sort_order: decodeSortOrder(todo),
 		completed,
 		completed_at: completedAt,
-		recurring: todo.hasProperty("rrule"),
+		recurring:
+			todo.hasProperty("rrule") ||
+			todo.hasProperty(UNPARSED_RRULE.toLowerCase()),
 	};
 }
 

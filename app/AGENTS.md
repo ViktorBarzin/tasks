@@ -86,7 +86,7 @@ convention by hand.
 
 ```
 src/
-  routes/            file routes; /api/* and /healthz, /metrics are server routes;
+  routes/            file routes; /api/* and /healthz are server routes;
                      UI routes: index (Home), list.$id, view.$view (all ssr: false)
   components/        React screens and pieces, tasks.css (the iOS look), shadcn/ui
                      in components/ui
@@ -106,7 +106,8 @@ src/
     ops/  sync/      POST /api/ops, GET /api/sync, sync cursor
     realtime/        NOTIFY listener, SSE hub, notify helpers
   entrypoints/       bundled with `bun build --target bun` (migrate)
-  start.ts           global request middleware (metrics, access log)
+  start.ts           global request middleware (idle timeout, metrics, access
+                     log, anti-framing headers, CSRF)
 e2e/                 Playwright, against the built server (sw/: live service worker)
 drizzle/             migrations; 0000_baseline.sql was pulled from Alembic's schema
 ```
@@ -250,18 +251,70 @@ bun run start        # serve .output on $HOST:$PORT
 | `AUTHENTIK_API_URL` | Authentik base URL for membership checks and approvals |
 | `AUTHENTIK_READER_TOKEN` | service account that may view users and groups |
 | `AUTHENTIK_APPROVER_TOKEN` | token that may only add users to Tasks Users |
-| `AUTHENTIK_USERS_GROUP_PK` | Tasks Users' UUID; looked up by name when unset |
+| `AUTHENTIK_USERS_GROUP_ID` | Tasks Users' UUID; looked up by name when unset |
 | `TASKS_USERS_GROUP`, `TASKS_ADMINS_GROUP`, `TASKS_AGENTS_GROUP` | group names, default `Tasks Users`, `Tasks Admins`, `Tasks Agents` |
 | `AUTHENTIK_GUEST_USERNAME` | the anonymous auto-login user, default `guest` |
 | `DEV_USER` | dev and test identity (an admin member); ignored when `NODE_ENV=production` |
 | `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
 | `HOST`, `PORT` | listen address; the image uses `0.0.0.0:3000` |
+| `METRICS_PORT` | second listener serving only `/metrics`; the image uses `9090`; unset means no metrics listener |
 
 Every secret above also reads from a `*_FILE` path.
 
 Logs are JSON lines on stderr with `ts`, `level`, `logger`, `msg` and extras,
-the same shape as the Python app. `/metrics` (prom-client) and `/healthz` are
-on the pod port.
+the same shape as the Python app. Console output from Nitro, srvx and
+uncaught errors goes through the same logger (logger `console`); srvx's
+one-line shutdown notice is the only plain line. `/healthz` is on the app
+port; `/metrics` (prom-client) is only on `METRICS_PORT`, which the ingress
+never routes.
+
+## Process lifecycle
+
+`src/server/nitro-plugin.server.ts` runs once at boot
+(`src/server/lifecycle.server.ts`):
+
+- Bun closes a request that is idle for 10 s by default. `src/start.ts`
+  raises it to 120 s per request (the engine allows 30 s per CalDAV call);
+  `/api/events` lifts it entirely.
+- The LISTEN connection opens at boot when `DATABASE_URL` is set, so the
+  realtime gauges mean something before the first subscriber.
+- SIGTERM/SIGINT close the SSE streams and the LISTEN connection, wait up to
+  5 s for in-flight requests, close the pool and exit 0.
+
+## Before the TypeScript build serves traffic
+
+Items for the cutover in infra `stacks/tasks` (ADR-0001, Pilot / Cutover):
+
+- Keep the default `rate-limit` middleware on the ingress. It runs the real-ip
+  plugin, which sets `X-Real-Ip`; Better Auth's rate limiter keys on that
+  header (`CLIENT_IP_HEADER` in `auth.server.ts`).
+- Set `custom_content_security_policy = "frame-ancestors 'none'"` on the
+  ingress. The default `csp-headers` middleware replaces the app's own CSP
+  with one that lets any `*.viktorbarzin.me` page frame the app.
+- Point `prometheus.io/port` at `9090` (`METRICS_PORT`).
+- Provision `AUTHENTIK_READER_TOKEN` (view users and groups). Without it, or
+  without `AUTHENTIK_API_URL`, every 15-minute membership re-check fails
+  closed (not a member) and logs an ERROR. `AUTHENTIK_USERS_GROUP_ID` comes
+  from Secret `tasks-authentik-approver`.
+- Add `paths-ignore: ["app/**", ".github/workflows/build-ts.yml"]` to
+  `.github/workflows/build.yml` before `app/` lands on master, or every
+  TypeScript commit rebuilds and redeploys the live Python image.
+- During the swap, the Svelte page still open in a browser gets a 302 to
+  `/api/signin` instead of a 401 from `/api/me`, `/api/sync`, `/api/ops` and
+  `/api/onboard` (`legacyClientRedirect` in `src/server/http/api.server.ts`),
+  so it shows "Session expired" instead of the Nextcloud reconnect banner.
+  The React build sends `X-Tasks-Client-Id` on every request and gets the
+  401. Remove the redirect once no Svelte build can be running.
+
+## Known differences from the Python build
+
+Pinned by tests; the parity suite (`parity.server.test.ts`) leaves them out.
+
+- `BYWEEKNO` rules are a per-op error on completion (ical.js lands one ISO
+  week off; dateutil was right).
+- An RRULE ical.js cannot parse even upper-cased (e.g. `BYDAY=MO,0WE`) still
+  shows the task as recurring in sync, but an edit to that task is a per-op
+  error; Python rewrote the object with the rule unchanged.
 
 ## Identity
 

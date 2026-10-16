@@ -333,6 +333,9 @@ describe.skipIf(!ready)("sign-in (tasks ADR-0004 popup target)", () => {
 			"https://evil.example/",
 			"//evil.example/",
 			"/\\evil",
+			"/.//evil.example/x",
+			"/..//evil.example",
+			"/%2e//evil.example",
 		]) {
 			const res = await get(
 				`/api/signin?return_to=${encodeURIComponent(evil)}`,
@@ -354,6 +357,37 @@ describe.skipIf(!ready)("sign-in (tasks ADR-0004 popup target)", () => {
 			server.origin,
 		);
 		expect(hops.at(-1)?.url).toBe(`${server.origin}/`);
+	});
+
+	test("/api/auth/finish never redirects off-origin through dot segments", async () => {
+		for (const evil of [
+			"/.//evil.example/x",
+			"/..//evil.example",
+			"/./\\evil",
+		]) {
+			const res = await fetch(
+				`${server.origin}/api/auth/finish?return=${encodeURIComponent(evil)}`,
+				{ redirect: "manual" },
+			);
+			expect(res.status).toBe(302);
+			expect(res.headers.get("location")).toBe("/");
+		}
+	});
+
+	test("pages, /api and redirects refuse to be framed", async () => {
+		const jar = new CookieJar();
+		for (const path of [
+			"/",
+			"/view/today",
+			"/api/me",
+			"/api/auth/finish?return=/",
+		]) {
+			const res = await get(path, jar);
+			expect(res.headers.get("content-security-policy")).toBe(
+				"frame-ancestors 'none'",
+			);
+			expect(res.headers.get("x-frame-options")).toBe("DENY");
+		}
 	});
 
 	test("sign-out ends the session", async () => {
@@ -577,4 +611,45 @@ describe.skipIf(!ready)("API bearer tokens", () => {
 		const res = await bearer("not-a-jwt", { cookie: jar.header() });
 		expect(res.status).toBe(401);
 	});
+});
+
+describe.skipIf(!ready)("Better Auth's rate limiter in production", () => {
+	let prod: BuiltServer;
+
+	beforeAll(async () => {
+		prod = await startBuiltServer(
+			{
+				NODE_ENV: "production",
+				DATABASE_URL: dbUrl,
+				OIDC_DISCOVERY_URL: mock.discoveryUrl,
+				OIDC_CLIENT_ID: mock.clientId,
+				OIDC_CLIENT_SECRET: mock.clientSecret,
+				BETTER_AUTH_SECRET: "test-secret-0123456789abcdef0123456789abcdef",
+				AUTHENTIK_API_URL: mock.apiUrl,
+				AUTHENTIK_READER_TOKEN: mock.readerToken,
+				AUTHENTIK_APPROVER_TOKEN: mock.approverToken,
+			},
+			{ origin: (port) => ({ PUBLIC_ORIGINS: `http://127.0.0.1:${port}` }) },
+		);
+	}, 30_000);
+
+	afterAll(async () => {
+		await prod?.stop();
+	});
+
+	const callback = (realIp: string, forwardedFor: string) =>
+		fetch(`${prod.origin}/api/auth/callback/authentik?code=x&state=y`, {
+			redirect: "manual",
+			headers: { "x-real-ip": realIp, "x-forwarded-for": forwardedFor },
+		});
+
+	test("one client filling its bucket does not lock out another", async () => {
+		const noisy: number[] = [];
+		for (let i = 0; i < 110; i++)
+			noisy.push((await callback("1.2.3.4", "1.2.3.4, 10.10.0.5")).status);
+		// The limiter is on: the noisy client hits its own limit.
+		expect(noisy).toContain(429);
+		const other = await callback("5.6.7.8", "5.6.7.8, 10.10.0.6");
+		expect(other.status).not.toBe(429);
+	}, 30_000);
 });

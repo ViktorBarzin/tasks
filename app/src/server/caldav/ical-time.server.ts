@@ -19,6 +19,7 @@ import {
 	wallMs,
 	wallToEpoch,
 } from "./tz.server";
+import { WINDOWS_TO_IANA } from "./windows-zones.server";
 
 export type IcalComponent = InstanceType<typeof ICAL.Component>;
 export type IcalProperty = InstanceType<typeof ICAL.Property>;
@@ -115,12 +116,26 @@ function vtimezoneOffsetAt(
 	};
 }
 
-/** Resolve a TZID: IANA through Intl, else the calendar's own VTIMEZONE. */
+/**
+ * Resolve a TZID in icalendar 6.3.2's order (timezone/tzp.py `timezone`):
+ * the IANA zone (leading/trailing "/" stripped), then a Windows zone name
+ * mapped to IANA, then the raw value, then the calendar's own VTIMEZONE.
+ */
 export function resolveTzid(
 	component: IcalComponent,
 	tzid: string,
 ): OffsetAt | null {
-	return ianaOffsetAt(tzid) ?? vtimezoneOffsetAt(component, tzid);
+	const clean = tzid.replace(/^\/+|\/+$/g, "");
+	const windows = Object.hasOwn(WINDOWS_TO_IANA, clean)
+		? WINDOWS_TO_IANA[clean]
+		: undefined;
+	return (
+		ianaOffsetAt(clean) ??
+		(windows ? ianaOffsetAt(windows) : null) ??
+		ianaOffsetAt(tzid) ??
+		vtimezoneOffsetAt(component, tzid) ??
+		(clean !== tzid ? vtimezoneOffsetAt(component, clean) : null)
+	);
 }
 
 function tzidOf(prop: IcalProperty): string | null {

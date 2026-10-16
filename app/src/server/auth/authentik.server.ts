@@ -3,7 +3,7 @@
  *
  * - find a user and their groups (reader token):
  *   `GET /core/users/?username=<u>&include_groups=true`
- * - find a group's pk by name (reader token), when AUTHENTIK_USERS_GROUP_PK is unset:
+ * - find a group's pk by name (reader token), when AUTHENTIK_USERS_GROUP_ID is unset:
  *   `GET /core/groups/?name=<n>`
  * - add a user to the users group (approver token):
  *   `POST /core/groups/<group_pk>/add_user/` with `{"pk": <user_pk>}`, answered 204
@@ -28,6 +28,18 @@ export class AuthentikUnavailable extends Error {
 	}
 }
 
+/**
+ * The app cannot ask Authentik at all: AUTHENTIK_API_URL or the token is not
+ * set. A configuration error, not an outage, so callers that keep the last
+ * answer through an outage must not keep it through this.
+ */
+export class AuthentikNotConfigured extends AuthentikUnavailable {
+	constructor(message: string) {
+		super(message);
+		this.name = "AuthentikNotConfigured";
+	}
+}
+
 export interface AuthentikUser {
 	pk: number;
 	uid: string;
@@ -43,9 +55,9 @@ async function call(
 	init: RequestInit = {},
 ): Promise<Response> {
 	if (!settings.apiUrl)
-		throw new AuthentikUnavailable("AUTHENTIK_API_URL is not set");
+		throw new AuthentikNotConfigured("AUTHENTIK_API_URL is not set");
 	if (!token)
-		throw new AuthentikUnavailable("no Authentik API token configured");
+		throw new AuthentikNotConfigured("no Authentik API token configured");
 	const headers = new Headers(init.headers);
 	headers.set("authorization", `Bearer ${token}`);
 	headers.set("accept", "application/json");
@@ -120,7 +132,7 @@ export async function findUser(
 	return null;
 }
 
-/** The users group's pk: AUTHENTIK_USERS_GROUP_PK, or a lookup by name. */
+/** The users group's pk: AUTHENTIK_USERS_GROUP_ID, or a lookup by name. */
 export async function usersGroupPk(settings: AccessSettings): Promise<string> {
 	if (settings.usersGroupPk) return settings.usersGroupPk;
 	const query = new URLSearchParams({ name: settings.usersGroup });

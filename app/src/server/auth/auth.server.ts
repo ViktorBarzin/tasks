@@ -45,6 +45,9 @@ export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 /** `__Host-` needs Secure, Path=/ and no Domain; Better Auth adds its own `__Secure-` otherwise. */
 export const COOKIE_PREFIX = "__Host-tasks";
 
+/** Set by the ingress's real-ip plugin (infra stacks/traefik, `rate-limit` chain). */
+export const CLIENT_IP_HEADER = "x-real-ip";
+
 /** Better Auth endpoints this app does not use; refused over HTTP (404). */
 export const DISABLED_PATHS = [
 	"/sign-in/social",
@@ -67,22 +70,24 @@ export const DISABLED_PATHS = [
 	"/update-session",
 ];
 
+/** True for a value a browser would resolve against another host. */
+function leavesOrigin(path: string): boolean {
+	return path.startsWith("//") || path.startsWith("/\\");
+}
+
 /**
  * A relative path inside this app to return to after sign-in, or "/".
- * Refuses absolute and protocol-relative URLs (no open redirect).
+ * Refuses absolute and protocol-relative URLs (no open redirect). The check
+ * runs on the normalised result too: dot segments collapse, so `/.//evil`
+ * normalises to `//evil`.
  */
 export function safeReturnPath(raw: string | null | undefined): string {
-	if (
-		!raw ||
-		!raw.startsWith("/") ||
-		raw.startsWith("//") ||
-		raw.startsWith("/\\")
-	)
-		return "/";
+	if (!raw || !raw.startsWith("/") || leavesOrigin(raw)) return "/";
 	try {
 		const url = new URL(raw, "http://app.invalid");
 		if (url.origin !== "http://app.invalid") return "/";
-		return `${url.pathname}${url.search}`;
+		const path = `${url.pathname}${url.search}`;
+		return leavesOrigin(path) ? "/" : path;
 	} catch {
 		return "/";
 	}
@@ -196,6 +201,13 @@ function createAuth(settings: AuthSettings) {
 		disabledPaths: DISABLED_PATHS,
 		telemetry: { enabled: false },
 		advanced: {
+			// The rate limiter (on in production) keys on the client IP. Behind
+			// Cloudflare and Traefik, X-Forwarded-For carries several hops, which
+			// Better Auth refuses without trustedProxies and then puts every client
+			// in one shared bucket. The ingress's default `rate-limit` chain runs the
+			// real-ip plugin first, which overwrites X-Real-Ip with the client
+			// address from the TCP peer, so a client cannot spoof it.
+			ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
 			cookiePrefix: COOKIE_PREFIX,
 			useSecureCookies: false,
 			defaultCookieAttributes: {

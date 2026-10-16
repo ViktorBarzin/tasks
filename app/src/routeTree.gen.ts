@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HealthzRouteImport } from './routes/healthz'
-import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as PendingRouteImport } from './routes/pending'
 import { Route as AdminRequestsRouteImport } from './routes/admin/requests'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
@@ -35,11 +34,6 @@ const IndexRoute = IndexRouteImport.update({
 const HealthzRoute = HealthzRouteImport.update({
   id: '/healthz',
   path: '/healthz',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MetricsRoute = MetricsRouteImport.update({
-  id: '/metrics',
-  path: '/metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PendingRoute = PendingRouteImport.update({
@@ -116,7 +110,6 @@ const ApiAuthStartRoute = ApiAuthStartRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/healthz': typeof HealthzRoute
-  '/metrics': typeof MetricsRoute
   '/pending': typeof PendingRoute
   '/admin/requests': typeof AdminRequestsRoute
   '/api/$': typeof ApiSplatRoute
@@ -135,7 +128,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/healthz': typeof HealthzRoute
-  '/metrics': typeof MetricsRoute
   '/pending': typeof PendingRoute
   '/admin/requests': typeof AdminRequestsRoute
   '/api/$': typeof ApiSplatRoute
@@ -155,7 +147,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/healthz': typeof HealthzRoute
-  '/metrics': typeof MetricsRoute
   '/pending': typeof PendingRoute
   '/admin/requests': typeof AdminRequestsRoute
   '/api/$': typeof ApiSplatRoute
@@ -176,7 +167,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/healthz'
-    | '/metrics'
     | '/pending'
     | '/admin/requests'
     | '/api/$'
@@ -195,7 +185,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/healthz'
-    | '/metrics'
     | '/pending'
     | '/admin/requests'
     | '/api/$'
@@ -214,7 +203,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/healthz'
-    | '/metrics'
     | '/pending'
     | '/admin/requests'
     | '/api/$'
@@ -234,7 +222,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HealthzRoute: typeof HealthzRoute
-  MetricsRoute: typeof MetricsRoute
   PendingRoute: typeof PendingRoute
   AdminRequestsRoute: typeof AdminRequestsRoute
   ApiSplatRoute: typeof ApiSplatRoute
@@ -265,13 +252,6 @@ declare module '@tanstack/react-router' {
       path: '/healthz'
       fullPath: '/healthz'
       preLoaderRoute: typeof HealthzRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/metrics': {
-      id: '/metrics'
-      path: '/metrics'
-      fullPath: '/metrics'
-      preLoaderRoute: typeof MetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pending': {
@@ -378,7 +358,6 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HealthzRoute: HealthzRoute,
-  MetricsRoute: MetricsRoute,
   PendingRoute: PendingRoute,
   AdminRequestsRoute: AdminRequestsRoute,
   ApiSplatRoute: ApiSplatRoute,

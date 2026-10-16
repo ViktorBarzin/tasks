@@ -135,6 +135,21 @@ describe("request shape (the frozen JSON contract)", () => {
 		expect(headers.get(CLIENT_ID_HEADER)).toBe(clientId());
 	});
 
+	it("marks every request as this build (X-Tasks-Client-Id), so the server answers 401, not the Svelte build's redirect", async () => {
+		fetchMock.mockResolvedValue(
+			jsonResponse({ username: "v", connected: true }),
+		);
+		await api.me();
+		fetchMock.mockResolvedValue(
+			jsonResponse({ cursor: "c", full: true, lists: [], tasks: [] }),
+		);
+		await api.sync("");
+		fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+		await api.onboard("u", "p");
+		for (const [, init] of fetchMock.mock.calls)
+			expect(new Headers(init?.headers).get(CLIENT_ID_HEADER)).toBe(clientId());
+	});
+
 	it("follows redirects normally (no opaqueredirect handling any more)", async () => {
 		fetchMock.mockResolvedValue(
 			jsonResponse({ username: "v", connected: true }),

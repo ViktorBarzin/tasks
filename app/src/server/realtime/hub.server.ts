@@ -13,6 +13,7 @@
  */
 import type { RealtimeEvent } from "#/shared/contract";
 import { getLogger } from "../logging.server";
+import { processSingleton } from "../singleton.server";
 import { createListener, type Listener } from "./listener.server";
 import { REALTIME_CHANNEL, type RealtimeMessage } from "./notify.server";
 
@@ -152,27 +153,30 @@ export function createSseHub(options: SseHubOptions = {}): SseHub {
 	};
 }
 
-let shared: { hub: SseHub; listener: Listener } | null = null;
+/** The hub and its listener, once per process (src/server/singleton.server.ts). */
+const realtime = processSingleton("realtime.hub", () => ({
+	shared: null as { hub: SseHub; listener: Listener } | null,
+}));
 
 /** The process-wide hub, wired to the listener on first use. */
 export function getSseHub(): SseHub {
-	if (shared === null) {
+	if (realtime.shared === null) {
 		const hub = createSseHub();
 		const listener = createListener(REALTIME_CHANNEL);
 		listener.onMessage((message) => hub.dispatch(message));
 		listener
 			.start()
 			.catch((err) => log.exception("realtime listener failed to start", err));
-		shared = { hub, listener };
+		realtime.shared = { hub, listener };
 	}
-	return shared.hub;
+	return realtime.shared.hub;
 }
 
 /** Stop the listener and close every stream (graceful shutdown, tests). */
 export async function stopSseHub(): Promise<void> {
-	if (shared === null) return;
-	const { hub, listener } = shared;
-	shared = null;
+	if (realtime.shared === null) return;
+	const { hub, listener } = realtime.shared;
+	realtime.shared = null;
 	hub.closeAll();
 	await listener.stop();
 }

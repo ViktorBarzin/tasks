@@ -11,17 +11,26 @@
  * The first answer comes from the verified id_token's `groups` claim at
  * sign-in (or a bearer token's), so a fresh sign-in needs no API call.
  *
- * Failure direction: when Authentik cannot give an answer (no token, a
- * network error, any status but 200), the last answer stands, as in
- * f1-stream's membership check. Only an answer Authentik actually gave can
- * remove access. With no earlier answer at all the subject is not a member.
+ * Failure direction: when Authentik cannot give an answer (a network error,
+ * any status but 200), the last answer stands, as in f1-stream's membership
+ * check. Only an answer Authentik actually gave can remove access. With no
+ * earlier answer at all the subject is not a member.
+ *
+ * A missing AUTHENTIK_API_URL or reader token is different: the app could
+ * never re-check, so keeping the last answer would let a removed person keep
+ * access for the whole 7-day session. That case fails closed (not a member)
+ * and logs an ERROR on every re-check until the configuration is fixed.
  */
 import { eq } from "drizzle-orm";
 
 import type { Db } from "../db/client.server";
 import { getLogger } from "../logging.server";
 import { membershipChecksTotal } from "./auth-metrics.server";
-import { AuthentikUnavailable, findUser } from "./authentik.server";
+import {
+	AuthentikNotConfigured,
+	AuthentikUnavailable,
+	findUser,
+} from "./authentik.server";
 import { type AccessSettings, getAccessSettings } from "./config.server";
 import { type MemberCheck, memberChecks } from "./schema.server";
 
@@ -125,6 +134,15 @@ async function recheck(
 		await saveMemberCheck(db, sub, username, answer, "api");
 		return answer;
 	} catch (err) {
+		if (err instanceof AuthentikNotConfigured) {
+			membershipChecksTotal.inc({ outcome: "misconfigured" });
+			log.error("membership: cannot re-check, access refused", {
+				sub,
+				user: username,
+				error: err.message,
+			});
+			return { member: false, admin: false };
+		}
 		if (!(err instanceof AuthentikUnavailable)) throw err;
 		membershipChecksTotal.inc({ outcome: "unreachable" });
 		log.warning("membership: cannot check, the last answer stands", {

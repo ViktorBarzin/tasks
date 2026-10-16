@@ -181,6 +181,46 @@ describe("parseTask", () => {
 		expect(parseTask(ics)?.due).toBe("2026-07-01T09:00:00+02:00");
 	});
 
+	test("a Windows TZID without a VTIMEZONE maps to its IANA zone, as icalendar did", () => {
+		const due = (tzid: string) =>
+			parseTask(
+				"BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:x\r\n" +
+					`DUE;TZID=${tzid}:20260710T090000\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`,
+			)?.due;
+		// Values pinned from the Python build (icalendar 6.3.2).
+		expect(due("W. Europe Standard Time")).toBe("2026-07-10T09:00:00+02:00");
+		expect(due("Eastern Standard Time")).toBe("2026-07-10T09:00:00-04:00");
+		// icalendar strips a leading "/" from a TZID.
+		expect(due("/Europe/Sofia")).toBe("2026-07-10T09:00:00+03:00");
+	});
+
+	test("RRULE values ical.js rejects: lowercase is read as icalendar read it; a broken rule still shows as recurring", () => {
+		const withRule = (rule: string) =>
+			"BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:x\r\nSUMMARY:s\r\n" +
+			`DUE:20260710T090000Z\r\nRRULE:${rule}\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`;
+		// Pinned from the Python build: both parse as recurring tasks.
+		for (const rule of ["freq=daily", "FREQ=DAILY;BYDAY=MO,0WE"]) {
+			const task = parseTask(withRule(rule));
+			expect(task?.recurring).toBe(true);
+			expect(task?.due).toBe("2026-07-10T09:00:00+00:00");
+			expect(task?.title).toBe("s");
+		}
+		// Python wrote the lowercase rule back upper-cased and rolled it forward.
+		const done = applyComplete(
+			withRule("freq=daily"),
+			new Date("2026-07-11T00:00:00Z"),
+		);
+		expect(unfoldLines(done)).toContain("RRULE:FREQ=DAILY");
+		expect(unfoldLines(done)).toContain("DUE:20260711T090000Z");
+		// A rule that still does not parse is never dropped by a write.
+		expect(() =>
+			applyComplete(
+				withRule("FREQ=DAILY;BYDAY=MO,0WE"),
+				new Date("2026-07-11T00:00:00Z"),
+			),
+		).toThrow(MapperError);
+	});
+
 	test("priority normalisation follows the Apple mapping", () => {
 		expect(
 			[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, -1].map(normalizePriority),

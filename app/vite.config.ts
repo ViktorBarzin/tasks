@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
@@ -64,6 +65,13 @@ export default defineConfig({
 		// Bun preset: `bun .output/server/index.mjs` (ADR-0001, Runtime).
 		nitro({
 			preset: "bun",
+			// Boot steps: idle timeout, JSON console, /metrics port, LISTEN at
+			// boot, graceful shutdown (src/server/lifecycle.server.ts).
+			plugins: [
+				fileURLToPath(
+					new URL("./src/server/nitro-plugin.server.ts", import.meta.url),
+				),
+			],
 			rollupConfig: {
 				external: bunBuiltins,
 				// Radix ships "use client" directives, which mean nothing to a server bundle.

@@ -1,8 +1,14 @@
-import { describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 
-import { SIGNIN_PATH } from "#/shared/contract";
+import { CLIENT_ID_HEADER, SIGNIN_PATH } from "#/shared/contract";
 
+import { clientId } from "./api";
 import { RETURN_TO_PARAM, signinPageUrl, startRelogin } from "./relogin";
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+	globalThis.fetch = realFetch;
+});
 
 describe("signinPageUrl", () => {
 	it("sends the window to the sign-in endpoint, which the service worker never answers", () => {
@@ -61,5 +67,22 @@ describe("startRelogin", () => {
 		});
 		expect(outcome).toBe("offline");
 		expect(assign).not.toHaveBeenCalled();
+	});
+
+	it("the default reachability probe marks itself as this build", async () => {
+		const fetchMock = mock(
+			async (_input: string, _init?: RequestInit) =>
+				new Response(null, { status: 401 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+		const assign = mock((_url: string) => {});
+		const outcome = await startRelogin({
+			href: "https://tasks.viktorbarzin.me/",
+			assign,
+		});
+		expect(outcome).toBe("navigated");
+		const [path, init] = fetchMock.mock.calls[0] ?? [];
+		expect(path).toBe("/api/me");
+		expect(new Headers(init?.headers).get(CLIENT_ID_HEADER)).toBe(clientId());
 	});
 });

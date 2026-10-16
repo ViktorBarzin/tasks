@@ -60,7 +60,7 @@ beforeAll(async () => {
 	setEnv("AUTHENTIK_API_URL", mock.apiUrl);
 	setEnv("AUTHENTIK_READER_TOKEN", mock.readerToken);
 	setEnv("AUTHENTIK_APPROVER_TOKEN", mock.approverToken);
-	setEnv("AUTHENTIK_USERS_GROUP_PK", undefined);
+	setEnv("AUTHENTIK_USERS_GROUP_ID", undefined);
 });
 
 afterAll(async () => {
@@ -238,6 +238,40 @@ describe.skipIf(!adminUrl)("membership re-check", () => {
 		} finally {
 			setEnv("AUTHENTIK_READER_TOKEN", mock.readerToken);
 		}
+	});
+
+	test.each([
+		["AUTHENTIK_READER_TOKEN", "reader"],
+		["AUTHENTIK_API_URL", "api"],
+	])("with %s unset a stale answer is not kept (fails closed)", async (name, tag) => {
+		const user = mock.addUser({
+			username: `unconfigured-${tag}@example.com`,
+			groups: ["Tasks Users"],
+		});
+		await saveMemberCheck(
+			db,
+			user.uid,
+			user.username,
+			{ member: true, admin: true },
+			"api",
+			new Date(0),
+		);
+		setEnv(name, undefined);
+		try {
+			expect(await currentMembership(db, user.uid, user.username)).toEqual({
+				member: false,
+				admin: false,
+			});
+		} finally {
+			setEnv(
+				name,
+				name === "AUTHENTIK_API_URL" ? mock.apiUrl : mock.readerToken,
+			);
+		}
+		// Once configured again, the real answer comes back.
+		expect((await currentMembership(db, user.uid, user.username)).member).toBe(
+			true,
+		);
 	});
 });
 

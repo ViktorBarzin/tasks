@@ -54,6 +54,28 @@ export class RecurrenceError extends Error {
  */
 const MAX_OCCURRENCES = 500_000;
 
+/**
+ * Parts dateutil accepts that ical.js iterates differently: BYWEEKNO lands
+ * one ISO week off (YEARLY;BYWEEKNO=2;BYDAY=MO from 2026-01-05 gives
+ * 2026-01-12, dateutil 2027-01-11). A per-op error is better than a wrong
+ * date. Deliberate divergence: the Python build rolled these forward.
+ */
+const UNSUPPORTED_PARTS = new Set(["byweekno"]);
+
+/** Sub-daily frequencies and their step, for jumping close to "now". */
+const SUB_DAILY_STEP_MS: Record<string, number> = {
+	SECONDLY: 1_000,
+	MINUTELY: 60_000,
+	HOURLY: 3_600_000,
+};
+
+/**
+ * Margin kept between a jumped start and the threshold. ical.js steps the
+ * wall clock while the threshold may be an instant; two days covers any
+ * change of UTC offset between them.
+ */
+const JUMP_MARGIN_MS = 2 * 86_400_000;
+
 /** The RFC 5545 recur parts dateutil accepts; anything else is an error. */
 const KNOWN_PARTS = new Set([
 	"freq",
@@ -136,6 +158,27 @@ interface Walk {
 }
 
 /**
+ * Where to start iterating. A sub-daily rule with no COUNT may start a whole
+ * number of steps after `base`, just short of the threshold: the occurrences
+ * after the threshold are the same, and a minutely rule from a year-old base
+ * would otherwise walk past MAX_OCCURRENCES. With COUNT every occurrence since
+ * the base must be counted, so the walk starts at the base.
+ */
+function iterationStart(
+	recur: IcalRecur,
+	base: WallClock,
+	baseKey: number,
+	threshold: number,
+): WallClock {
+	const unit = SUB_DAILY_STEP_MS[String(recur.freq).toUpperCase()];
+	if (unit === undefined || recur.count) return base;
+	const step = unit * (recur.interval || 1);
+	const steps = Math.floor((threshold - baseKey - JUMP_MARGIN_MS) / step);
+	if (steps <= 0) return base;
+	return wallFromMs(wallMs(base) + steps * step);
+}
+
+/**
  * Walk the rule from `base` (dateutil semantics: DTSTART counts only when it
  * matches the rule; UNTIL is inclusive) up to the first occurrence after
  * `threshold`.
@@ -150,10 +193,11 @@ function walk(
 	const rule = recur.clone();
 	rule.until = null;
 	const baseKey = keyOf(base, domain);
+	const start = iterationStart(recur, base, baseKey, threshold);
 	let consumed = 0;
 	try {
 		const iterator = rule.iterator(
-			ICAL.Time.fromData({ ...base, isDate: false }),
+			ICAL.Time.fromData({ ...start, isDate: false }),
 		);
 		for (let i = 0; i < MAX_OCCURRENCES; i++) {
 			const occurrence = iterator.next();
@@ -241,6 +285,14 @@ function checkRule(raw: unknown): void {
 	}
 	if (!keys.some((k) => k.toLowerCase() === "freq")) {
 		throw new RecurrenceError("unsupported RRULE: FREQ is required");
+	}
+	const unsupported = keys.filter((k) =>
+		UNSUPPORTED_PARTS.has(k.toLowerCase()),
+	);
+	if (unsupported.length > 0) {
+		throw new RecurrenceError(
+			`unsupported RRULE: ${unsupported.map((k) => k.toUpperCase()).join(", ")} is not supported`,
+		);
 	}
 }
 

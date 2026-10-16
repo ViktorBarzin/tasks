@@ -880,7 +880,7 @@ describe("list ops", () => {
 		expect(result?.error).toBe("list 'nope' not found");
 	});
 
-	for (const bad of [null, "first", 1.5, true, undefined]) {
+	for (const bad of [null, "first", 1.5, true, undefined, 1e21, 2 ** 60]) {
 		test(`list_reorder with order ${JSON.stringify(bad)} errors`, async () => {
 			const fields: Record<string, unknown> = { list_id: "work" };
 			if (bad !== undefined) fields.order = bad;

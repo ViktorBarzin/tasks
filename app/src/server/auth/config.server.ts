@@ -105,7 +105,10 @@ export interface AccessSettings {
 	 * the app's users group. Used when an admin approves a request.
 	 */
 	approverToken: string | null;
-	/** AUTHENTIK_USERS_GROUP_PK: the users group's UUID; looked up by name when unset. */
+	/**
+	 * AUTHENTIK_USERS_GROUP_ID: the users group's UUID (pk); looked up by name
+	 * when unset. infra stacks/tasks sets it in Secret tasks-authentik-approver.
+	 */
 	usersGroupPk: string | null;
 	/** TASKS_USERS_GROUP, default "Tasks Users". */
 	usersGroup: string;
@@ -122,7 +125,7 @@ export function getAccessSettings(): AccessSettings {
 		apiUrl: env("AUTHENTIK_API_URL")?.replace(/\/+$/, "") ?? null,
 		readerToken: secret("AUTHENTIK_READER_TOKEN"),
 		approverToken: secret("AUTHENTIK_APPROVER_TOKEN"),
-		usersGroupPk: env("AUTHENTIK_USERS_GROUP_PK"),
+		usersGroupPk: env("AUTHENTIK_USERS_GROUP_ID"),
 		usersGroup: env("TASKS_USERS_GROUP") ?? "Tasks Users",
 		adminsGroup: env("TASKS_ADMINS_GROUP") ?? "Tasks Admins",
 		agentsGroup: env("TASKS_AGENTS_GROUP") ?? "Tasks Agents",

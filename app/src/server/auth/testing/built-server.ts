@@ -28,7 +28,13 @@ async function freePort(): Promise<number> {
 
 export interface BuiltServer {
 	origin: string;
+	/** The METRICS_PORT listener (/metrics), separate from the app port. */
+	metricsOrigin: string;
 	logs: string[];
+	/** Send a signal to the server process. */
+	kill(signal: NodeJS.Signals): void;
+	/** Resolves with the exit code once the process has exited. */
+	exited: Promise<number>;
 	stop(): Promise<void>;
 }
 
@@ -51,6 +57,7 @@ export async function startBuiltServer(
 	options: { origin?: (port: number) => Record<string, string> } = {},
 ): Promise<BuiltServer> {
 	const port = await freePort();
+	const metricsPort = await freePort();
 	const origin = `http://127.0.0.1:${port}`;
 	const base: Record<string, string | undefined> = { ...process.env };
 	for (const key of SCRUBBED) delete base[key];
@@ -62,6 +69,7 @@ export async function startBuiltServer(
 			LOG_LEVEL: "INFO",
 			HOST: "127.0.0.1",
 			PORT: String(port),
+			METRICS_PORT: String(metricsPort),
 			...(options.origin?.(port) ?? {}),
 			...env,
 		},
@@ -91,7 +99,10 @@ export async function startBuiltServer(
 	}
 	return {
 		origin,
+		metricsOrigin: `http://127.0.0.1:${metricsPort}`,
 		logs,
+		kill: (signal) => proc.kill(signal),
+		exited: proc.exited,
 		async stop() {
 			proc.kill();
 			// Graceful shutdown waits for open streams; do not wait long.

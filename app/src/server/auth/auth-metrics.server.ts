@@ -3,7 +3,10 @@ import client from "prom-client";
 
 import { registry } from "../metrics.server";
 
-/** Membership re-checks against Authentik: member, removed, or unreachable (the last answer stood). */
+/**
+ * Membership re-checks against Authentik: member, removed, unreachable (the
+ * last answer stood), or misconfigured (no API URL or reader token; refused).
+ */
 export const membershipChecksTotal = new client.Counter({
 	name: "tasks_membership_checks_total",
 	help: "Membership re-checks against Authentik by outcome.",

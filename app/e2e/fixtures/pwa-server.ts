@@ -57,6 +57,8 @@ export interface PwaServer {
 	lists: StubList[];
 	batches: PostedBatch[];
 	syncCount: number;
+	/** /api requests answered 401 because there was no session. */
+	unauthorized: number;
 	/** Push an SSE event to every open /api/events stream. */
 	push(event: string, data: unknown): void;
 	openStreams(): number;
@@ -74,6 +76,13 @@ const MIME: Record<string, string> = {
 	".svg": "image/svg+xml",
 	".webmanifest": "application/manifest+json",
 };
+
+const LEGACY_PATHS = new Set([
+	"/api/me",
+	"/api/onboard",
+	"/api/sync",
+	"/api/ops",
+]);
 
 // The real cookie is `__Host-` prefixed; that needs HTTPS, so the stand-in uses a plain name.
 const SESSION_COOKIE = "tasks_e2e_session";
@@ -154,6 +163,7 @@ export async function startPwaServer(options: {
 		],
 		batches: [],
 		syncCount: 0,
+		unauthorized: 0,
 		push(event, data) {
 			for (const res of streams)
 				res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -220,12 +230,25 @@ export async function startPwaServer(options: {
 			);
 		}
 
-		if (!hasSession(req))
+		if (!hasSession(req)) {
+			state.unauthorized++;
+			// The server's legacyClientRedirect (src/server/http/api.server.ts):
+			// the Svelte build's same-origin fetches get a redirect, which it
+			// reads as an expired session, not a revoked app password.
+			if (
+				LEGACY_PATHS.has(path) &&
+				!req.headers["x-tasks-client-id"] &&
+				!req.headers.authorization &&
+				req.headers["sec-fetch-site"] === "same-origin" &&
+				req.headers["sec-fetch-mode"] !== "navigate"
+			)
+				return redirect(res, "/api/signin");
 			return json(
 				res,
 				{ error: { code: "unauthorized", message: "sign in required" } },
 				401,
 			);
+		}
 
 		if (path === "/api/me")
 			return json(res, { username: "e2e", connected: true });
