@@ -3,7 +3,11 @@
 Self-hosted, Reminders-style tasks PWA for the household, served at
 `tasks.viktorbarzin.me`. Nextcloud CalDAV stays the source of truth; the PWA is
 offline-first (full IndexedDB Replica + Op Queue) and speaks only the JSON
-delta-sync API — the FastAPI backend alone speaks CalDAV.
+delta-sync API — the backend alone speaks CalDAV.
+
+The domain is served by the TypeScript build in `app/` (see
+[`app/AGENTS.md`](app/AGENTS.md)). The Python/Svelte build below still builds
+and runs in the cluster, without a route, as the rollback target.
 
 Authoritative docs: [`CONTEXT.md`](CONTEXT.md) (domain language),
 [`docs/2026-07-03-tasks-pwa-design.md`](docs/2026-07-03-tasks-pwa-design.md)
@@ -11,14 +15,19 @@ Authoritative docs: [`CONTEXT.md`](CONTEXT.md) (domain language),
 
 ## Layout
 
+- `app/` — the TypeScript build (TanStack Start, Bun, Postgres, own OIDC
+  sign-in). Built by `.github/workflows/build-ts.yml` into
+  ghcr.io/viktorbarzin/tasks-ts and deployed to Deployment `tasks-next`.
 - `backend/` — FastAPI (python 3.12, poetry). `/healthz`, `/metrics`, `/api/*`
   per the contract; serves the built SPA from `frontend/build` when present.
 - `frontend/` — SvelteKit + TypeScript static SPA (adapter-static,
   vite-plugin-pwa autoUpdate).
 - `Dockerfile` — multi-stage: node builds the SPA, python image runs uvicorn
   serving API + SPA (one container, linux/amd64).
-- CI/CD — `.github/workflows/build.yml` (lint/test → ghcr.io/viktorbarzin/tasks)
-  → `.woodpecker/deploy.yml` (kubectl set image, ns `tasks`), per infra ADR-0002.
+- CI/CD — `.github/workflows/build.yml` (lint/test → ghcr.io/viktorbarzin/tasks,
+  skipped for `app/`-only changes) and `build-ts.yml` (→ tasks-ts) both trigger
+  `.woodpecker/deploy.yml`, which sets the image on Deployment `tasks` or
+  `tasks-next` in ns `tasks` by image name, per infra ADR-0002.
 
 ## Dev
 

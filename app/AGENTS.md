@@ -281,9 +281,13 @@ never routes.
 - SIGTERM/SIGINT close the SSE streams and the LISTEN connection, wait up to
   5 s for in-flight requests, close the pool and exit 0.
 
-## Before the TypeScript build serves traffic
+## Serving traffic
 
-Items for the cutover in infra `stacks/tasks` (ADR-0001, Pilot / Cutover):
+The TypeScript build serves `tasks.viktorbarzin.me` (and
+`tasks-next.viktorbarzin.me`) from Deployment `tasks-next` in infra
+`stacks/tasks` (ADR-0001, Cutover). The Python Deployment `tasks` keeps
+running, without a route, as the rollback target. What the ingress and
+Deployment need, and why:
 
 - Keep the default `rate-limit` middleware on the ingress. It runs the real-ip
   plugin, which sets `X-Real-Ip`; Better Auth's rate limiter keys on that
@@ -296,9 +300,13 @@ Items for the cutover in infra `stacks/tasks` (ADR-0001, Pilot / Cutover):
   without `AUTHENTIK_API_URL`, every 15-minute membership re-check fails
   closed (not a member) and logs an ERROR. `AUTHENTIK_USERS_GROUP_ID` comes
   from Secret `tasks-authentik-approver`.
-- Add `paths-ignore: ["app/**", ".github/workflows/build-ts.yml"]` to
-  `.github/workflows/build.yml` before `app/` lands on master, or every
-  TypeScript commit rebuilds and redeploys the live Python image.
+- `.github/workflows/build.yml` has `paths-ignore: ["app/**",
+  ".github/workflows/build-ts.yml"]`, so a TypeScript commit does not
+  rebuild and redeploy the Python image.
+- Deploys: on master, `build-ts.yml` pushes `tasks-ts:<sha>` and triggers
+  `.woodpecker/deploy.yml` with `IMAGE_NAME=ghcr.io/viktorbarzin/tasks-ts`,
+  which sets that image on both containers of `tasks-next` (`migrate`, the
+  init container, and `tasks-next`). Terraform ignores both images.
 - During the swap, the Svelte page still open in a browser gets a 302 to
   `/api/signin` instead of a 401 from `/api/me`, `/api/sync`, `/api/ops` and
   `/api/onboard` (`legacyClientRedirect` in `src/server/http/api.server.ts`),

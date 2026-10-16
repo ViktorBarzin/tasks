@@ -10,6 +10,12 @@ name: Build and Push
 on:
   push:
     branches: [master]
+    # The TypeScript app has its own build (build-ts.yml). Without this, every
+    # TypeScript commit would rebuild and redeploy this Python image, which
+    # stays buildable as the rollback target.
+    paths-ignore:
+      - "app/**"
+      - ".github/workflows/build-ts.yml"
   workflow_dispatch: {}
 
 permissions:
