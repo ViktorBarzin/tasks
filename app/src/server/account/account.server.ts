@@ -14,6 +14,8 @@ import {
 import type { Db } from "../db/client.server";
 import { ApiError } from "../http/errors.server";
 import { getLogger } from "../logging.server";
+import type { OpsEngine } from "../ops/ops.server";
+import type { SyncEngine } from "../sync/sync.server";
 
 const log = getLogger("tasks.account");
 
@@ -27,6 +29,28 @@ export function setCalDAVTransportForTests(
 	transport: CalDAVTransport | undefined,
 ): void {
 	transportOverride = transport;
+}
+
+/** What a request handler needs from the per-user engine. */
+export type TasksEngine = OpsEngine &
+	SyncEngine &
+	Pick<CalDAVEngine, "validateCredentials" | "close">;
+
+export type EngineFactory = (
+	ncUsername: string,
+	appPassword: string,
+) => TasksEngine;
+
+/**
+ * Tests of the /api routes swap the whole engine for the engine-level fake
+ * Nextcloud (src/test/fake-nextcloud.server.ts). Production leaves it unset.
+ */
+let engineFactoryOverride: EngineFactory | undefined;
+
+export function setEngineFactoryForTests(
+	factory: EngineFactory | undefined,
+): void {
+	engineFactoryOverride = factory;
 }
 
 export function requireFernetKey(): string {
@@ -44,7 +68,9 @@ export function requireFernetKey(): string {
 export function buildEngine(
 	ncUsername: string,
 	appPassword: string,
-): CalDAVEngine {
+): TasksEngine {
+	if (engineFactoryOverride)
+		return engineFactoryOverride(ncUsername, appPassword);
 	return new CalDAVEngine({
 		baseUrl: getSettings().caldavBaseUrl,
 		ncUsername,
@@ -57,7 +83,7 @@ export function buildEngine(
 export async function engineForUser(
 	db: Db,
 	user: AuthUser,
-): Promise<CalDAVEngine> {
+): Promise<TasksEngine> {
 	const fernetKey = requireFernetKey();
 	const account = await getAccount(db, user.accountKey);
 	if (!account) {
