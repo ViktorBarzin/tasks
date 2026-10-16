@@ -1,6 +1,6 @@
-# tasks, TypeScript build (ADR-0001, Image). Build context: this app/ directory.
+# tasks (ADR-0001, Image). Build context: the repository root.
 #
-#   docker build -t tasks-ts:local app/
+#   docker build -t tasks:local .
 #
 # Runs the Nitro server by default. The migrate entrypoint runs from the same
 # image as an init container or Job, with args ["entrypoints/migrate.js"].

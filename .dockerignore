@@ -7,3 +7,8 @@ playwright-report
 .env
 .env.*
 *.local
+.git
+.github
+.woodpecker
+.worktrees
+docs
