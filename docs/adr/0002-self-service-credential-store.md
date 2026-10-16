@@ -1,5 +1,7 @@
 # Self-service onboarding with an app-side encrypted credential store
 
+> Partly superseded 2026-10-16: identity now comes from the app's own OIDC sign-in, not the forward-auth header, since the Python backend was retired (see `~/code/docs/adr/0001-default-app-stack.md`). Self-service onboarding and the Fernet-encrypted credential store stand.
+
 Multi-user from day 1 (Viktor, Anca, Emo): Authentik forward-auth provides identity
 (X-authentik-username), but acting on a user's Nextcloud data needs their own CalDAV app
 password. We chose self-service Onboarding — the user pastes a Nextcloud app password,

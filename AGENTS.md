@@ -1,4 +1,4 @@
-# tasks, TypeScript build (app/)
+# tasks
 
 > [!WARNING]
 > TanStack Start is NOT Next.js. There is no `getServerSideProps`, no
@@ -8,12 +8,13 @@
 > HTTP endpoints are server routes (`createFileRoute(...)({ server: { handlers } })`).
 > If you catch yourself writing a Next.js pattern, load the skills below first.
 
-This directory is the TypeScript port of `tasks`, built on the default app
-stack in `~/code/docs/adr/0001-default-app-stack.md` (read its Pilot section).
-The live app is still the FastAPI backend in `../backend` and the SvelteKit PWA
-in `../frontend`; they stay untouched until cutover. Work happens on
-`wizard/ts-*` branches. Never merge into `master`: CI deploys `master` to the
-live app (`.github/workflows/build.yml`, `.woodpecker/deploy.yml`).
+`tasks` is a Reminders-style tasks PWA over Nextcloud CalDAV, served at
+`tasks.viktorbarzin.me`, built on the default app stack in
+`~/code/docs/adr/0001-default-app-stack.md`. Domain language is in
+[CONTEXT.md](CONTEXT.md); the API contract is in `docs/` and
+`src/shared/contract.ts`. Every push to `master` builds and deploys the live
+app (`.github/workflows/build.yml`, `.woodpecker/deploy.yml`), so land only
+verified work there.
 
 ## Load the TanStack skills before you write Start or Router code
 
@@ -90,10 +91,10 @@ src/
                      UI routes: index (Home), list.$id, view.$view (all ssr: false)
   components/        React screens and pieces, tasks.css (the iOS look), shadcn/ui
                      in components/ui
-  client/            browser-only logic copied from the Svelte build: db (IndexedDB
-                     Replica + Op Queue), replica, sync, ops, actions, views, sort,
-                     dates, api, signin/relogin, realtime (SSE), ui/ gestures,
-                     sw/service-worker.ts; store.ts is a small svelte/store stand-in
+  client/            browser-only logic: db (IndexedDB Replica + Op Queue), replica,
+                     sync, ops, actions, views, sort, dates, api, signin/relogin,
+                     realtime (SSE), ui/ gestures, sw/service-worker.ts; store.ts
+                     is a small subscribe/set store
   shared/            code for both sides: contract.ts (wire types + zod),
                      replica-contract.ts (frozen IndexedDB layout)
   server/            server-only, every file *.server.ts
@@ -123,11 +124,11 @@ or server rendering to the Replica screens; their data comes from
 `src/client/`. The `/pending` and `/admin/*` pages are the exception: their
 loaders call server functions, which run on the client after the shell loads.
 
-Frozen for the cutover (ADR-0001, Pilot / Client continuity): the IndexedDB
-name, version and stores (`src/shared/replica-contract.ts`), the op wire
-format, the worker URL `/service-worker.js` and the web manifest URL. The
-React build replaces the Svelte build's worker in place and drains the ops it
-queued; `e2e/sw/cutover.spec.ts` checks exactly that.
+Installed PWAs keep their Replica and queued ops across deploys, so treat
+these as a contract: the IndexedDB name, version and stores
+(`src/shared/replica-contract.ts`), the op wire format, the worker URL
+`/service-worker.js` and the web manifest URL. Changing one needs a migration
+path for data already on phones.
 
 - The PWA is vite-plugin-pwa (injectManifest, `src/client/sw/`), run in the
   client build only: per-environment it would rewrite the worker after Nitro
@@ -175,24 +176,18 @@ bun run start        # serve .output on $HOST:$PORT
   matchers, cleanup, quiet logs). The test script sets `NODE_ENV=test`.
 - Tests sit next to the code: `foo.server.ts` → `foo.server.test.ts`,
   `Thing.tsx` → `Thing.test.tsx`.
-- Port the Python tests (`../backend/tests`) as the correctness oracle.
-  `hypothesis` property tests become `fast-check` properties;
-  `fake_caldav.py` becomes an in-memory `CalDAVTransport`.
+- Property tests use `fast-check`.
 - Server functions need Start's request context, so test them over HTTP
   against the built server, not by importing them.
 - Database tests run when `TEST_DATABASE_URL` is set (a role that can create
   databases); each test makes and drops its own database. See
   `src/server/db/db.server.test.ts` for a one-line Postgres container recipe.
-- The live Python Fernet check runs when `TASKS_FERNET_PYTHON` points at a
-  Python with `cryptography` (e.g. `../backend/.venv/bin/python`).
-- The differential test `src/server/caldav/parity.server.test.ts` runs about
-  3,000 generated cases through both the Python backend and this port when
-  `TASKS_PYTHON_ORACLE` points at the backend's Python. `TASKS_PYTHON_BACKEND`
-  overrides the backend directory (default `../backend`), `TASKS_PARITY_SEED`
-  picks the seed and `TASKS_PARITY_DUMP=<file>` appends every mismatch there.
+- Fernet tokens recorded from Python's `cryptography`
+  (`src/server/crypto/fixtures/fernet-python.json`) pin the stored format:
+  existing `connected_accounts` rows were written that way.
 - Two CalDAV test doubles, at different depths:
-  - `src/server/caldav/testing/fake-nextcloud.server.ts`, the port of
-    `fake_caldav.py`, is a `CalDAVTransport`: the real engine and ICS mapper
+  - `src/server/caldav/testing/fake-nextcloud.server.ts` is a
+    `CalDAVTransport`: the real engine and ICS mapper
     run against it. `fixtures.server.ts` beside it has the seeded user and
     the golden files.
   - `src/test/fake-nextcloud.server.ts` replaces the whole engine (FakeEngine,
@@ -211,8 +206,6 @@ bun run start        # serve .output on $HOST:$PORT
   in `e2e/fixtures/pwa-server.ts`, with an OIDC stand-in). Gesture specs stub
   /api with `page.route`; a service worker's requests cannot be stubbed that
   way, hence the stub origin.
-- The cutover spec serves the Svelte build from `../frontend/build`;
-  `e2e/global-setup.ts` builds it with npm when it is missing.
 
 ## Database
 
@@ -222,12 +215,12 @@ bun run start        # serve .output on $HOST:$PORT
 - `DATABASE_URL` has no password in production; the password is read from
   `DATABASE_PASSWORD_FILE` each time a connection opens, so Vault rotation
   does not break new connections.
-- The schema matches Alembic's tables exactly (`bun run db:generate` must say
+- The schema matches the two tables the retired Python build created with
+  Alembic exactly (`bun run db:generate` must say
   "No schema changes"). `enc_app_password` is a hand-written `bytea` custom
   type holding the Fernet token's ASCII bytes; `updated_at` uses `$onUpdate`.
-- Migrations stay additive while the Python image is a rollback target: it
-  runs `alembic upgrade head` on every start. drizzle-kit ignores
-  `alembic_version` (`tablesFilter`).
+- drizzle-kit ignores `alembic_version` (`tablesFilter`); the table stays in
+  place, unmanaged.
 - The baseline is recorded as applied, not run, on a database Alembic
   manages: `markBaselineIfLegacy` in `src/server/db/migrate.server.ts` inserts
   the baseline's hash and timestamp into `drizzle.__drizzle_migrations` when
@@ -241,7 +234,7 @@ bun run start        # serve .output on $HOST:$PORT
 |---|---|
 | `DATABASE_URL`, `DATABASE_PASSWORD_FILE` | Postgres; see above |
 | `MIGRATIONS_DIR` | migrate entrypoint; `/app/drizzle` in the image |
-| `TASKS_FERNET_KEY` | encrypts Nextcloud app passwords (same key as the Python app) |
+| `TASKS_FERNET_KEY` | encrypts Nextcloud app passwords; existing rows need the same key |
 | `TASKS_CALDAV_BASE_URL` | Nextcloud DAV root |
 | `TASKS_LOCAL_TZ` | all-day recurrence zone, default `Europe/Sofia` |
 | `PUBLIC_ORIGINS` | exact public origins: Better Auth's baseURL (the first) and trustedOrigins, and the CSRF allow-list |
@@ -261,8 +254,8 @@ bun run start        # serve .output on $HOST:$PORT
 
 Every secret above also reads from a `*_FILE` path.
 
-Logs are JSON lines on stderr with `ts`, `level`, `logger`, `msg` and extras,
-the same shape as the Python app. Console output from Nitro, srvx and
+Logs are JSON lines on stderr with `ts`, `level`, `logger`, `msg` and extras.
+Console output from Nitro, srvx and
 uncaught errors goes through the same logger (logger `console`); srvx's
 one-line shutdown notice is the only plain line. `/healthz` is on the app
 port; `/metrics` (prom-client) is only on `METRICS_PORT`, which the ingress
@@ -283,10 +276,8 @@ never routes.
 
 ## Serving traffic
 
-The TypeScript build serves `tasks.viktorbarzin.me` (and
-`tasks-next.viktorbarzin.me`) from Deployment `tasks-next` in infra
-`stacks/tasks` (ADR-0001, Cutover). The Python Deployment `tasks` keeps
-running, without a route, as the rollback target. What the ingress and
+The app serves `tasks.viktorbarzin.me` from Deployment `tasks` (Service
+`tasks`, ports 3000 and 9090) in infra `stacks/tasks`. What the ingress and
 Deployment need, and why:
 
 - Keep the default `rate-limit` middleware on the ingress. It runs the real-ip
@@ -300,29 +291,20 @@ Deployment need, and why:
   without `AUTHENTIK_API_URL`, every 15-minute membership re-check fails
   closed (not a member) and logs an ERROR. `AUTHENTIK_USERS_GROUP_ID` comes
   from Secret `tasks-authentik-approver`.
-- `.github/workflows/build.yml` has `paths-ignore: ["app/**",
-  ".github/workflows/build-ts.yml"]`, so a TypeScript commit does not
-  rebuild and redeploy the Python image.
-- Deploys: on master, `build-ts.yml` pushes `tasks-ts:<sha>` and triggers
-  `.woodpecker/deploy.yml` with `IMAGE_NAME=ghcr.io/viktorbarzin/tasks-ts`,
-  which sets that image on both containers of `tasks-next` (`migrate`, the
-  init container, and `tasks-next`). Terraform ignores both images.
-- During the swap, the Svelte page still open in a browser gets a 302 to
-  `/api/signin` instead of a 401 from `/api/me`, `/api/sync`, `/api/ops` and
-  `/api/onboard` (`legacyClientRedirect` in `src/server/http/api.server.ts`),
-  so it shows "Session expired" instead of the Nextcloud reconnect banner.
-  The React build sends `X-Tasks-Client-Id` on every request and gets the
-  401. Remove the redirect once no Svelte build can be running.
+- Deploys: on master, `build.yml` pushes `ghcr.io/viktorbarzin/tasks:<sha>`,
+  tags the next `vX.Y.Z` with svu, and triggers `.woodpecker/deploy.yml`,
+  which sets that image on both containers of Deployment `tasks` (`migrate`,
+  the init container, and `tasks`). Terraform ignores both images.
 
-## Known differences from the Python build
+## Recurrence limits
 
-Pinned by tests; the parity suite (`parity.server.test.ts`) leaves them out.
+Pinned by tests:
 
 - `BYWEEKNO` rules are a per-op error on completion (ical.js lands one ISO
-  week off; dateutil was right).
+  week off).
 - An RRULE ical.js cannot parse even upper-cased (e.g. `BYDAY=MO,0WE`) still
   shows the task as recurring in sync, but an edit to that task is a per-op
-  error; Python rewrote the object with the rule unchanged.
+  error.
 
 ## Identity
 

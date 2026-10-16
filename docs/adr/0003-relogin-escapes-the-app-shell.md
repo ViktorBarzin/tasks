@@ -1,5 +1,7 @@
 # The re-login navigation carries a marker so it escapes the app shell
 
+> Superseded 2026-10-16: the forward-auth sign-in this describes was retired with the Python backend; the app now detects an expired session from a 401 and signs in through its own OIDC flow (see `~/code/docs/adr/0001-default-app-stack.md`).
+
 The two PWA requirements collide, and the collision locked Viktor out of the app for a
 month.
 

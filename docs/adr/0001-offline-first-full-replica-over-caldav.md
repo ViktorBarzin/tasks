@@ -1,5 +1,7 @@
 # Offline-first full replica with silent LWW, over a JSON delta-sync API
 
+> Updated 2026-10-16: the FastAPI backend named here was retired; the TypeScript server keeps the same JSON delta-sync API (see `~/code/docs/adr/0001-default-app-stack.md`). The decision stands.
+
 The app must capture and edit tasks with no connectivity (tube test), so the client keeps a
 complete IndexedDB Replica of every List and Task (full history — at household scale it is
 tiny) and renders only from it; all mutations are Ops in a durable Op Queue replayed in

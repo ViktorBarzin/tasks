@@ -1,5 +1,7 @@
 # Sign-in happens in a popup, with the full-page path as fallback
 
+> Updated 2026-10-16: the Svelte build was retired; the popup sign-in lives on in `src/client/signin.ts` and starts the app's own OIDC flow at `/api/signin` (see `~/code/docs/adr/0001-default-app-stack.md`).
+
 ADR-0003 made the "Session expired — sign in" tap reach the login page at all. It reached
 it by navigating the app window, which works but is heavy-handed: the app is torn down and
 rebuilt, and on an installed PWA the window leaves for the SSO origin and comes back.
