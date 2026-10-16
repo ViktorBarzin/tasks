@@ -274,6 +274,13 @@ export async function startPwaServer(options: {
 				);
 			const { ops } = JSON.parse(body || '{"ops":[]}') as { ops: WireOp[] };
 			state.batches.push({ ops, clientId });
+			// Apply renames, so a sync after the drain shows what was sent
+			// (otherwise the page's title races between the two).
+			for (const op of ops) {
+				const list = state.lists.find((l) => l.id === op.list_id);
+				if (op.kind === "list_rename" && list && typeof op.name === "string")
+					list.name = op.name;
+			}
 			return json(res, {
 				results: ops.map((op) => ({
 					op_id: op.op_id,

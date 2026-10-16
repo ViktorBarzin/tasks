@@ -245,4 +245,5 @@ test("with no session on the new server, the queue survives both builds' 401 and
 	expect(JSON.stringify(sent)).toBe(JSON.stringify(queued.map((q) => q.op)));
 	await expect.poll(async () => (await readQueue(page)).length).toBe(0);
 	expect(await readStore(page, "dead_ops")).toEqual([]);
+	await expect(page.locator(".large-title")).toHaveText("Groceries");
 });
