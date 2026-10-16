@@ -15,12 +15,17 @@ function collectErrors(page: import("@playwright/test").Page): string[] {
 	return errors;
 }
 
-test("the pending page offers sign-in when signed out and hydrates cleanly", async ({ page }) => {
+test("the pending page offers sign-in when signed out and hydrates cleanly", async ({
+	page,
+}) => {
 	const errors = collectErrors(page);
 	await page.goto("/pending");
 	const signIn = page.getByRole("link", { name: "Sign in" });
 	await expect(signIn).toBeVisible();
-	await expect(signIn).toHaveAttribute("href", "/api/auth/start?return=%2Fpending");
+	await expect(signIn).toHaveAttribute(
+		"href",
+		"/api/auth/start?return=%2Fpending",
+	);
 	expect(errors).toEqual([]);
 });
 
@@ -29,9 +34,14 @@ test("the approval page refuses a signed-out visitor", async ({ page }) => {
 	await expect(page.getByRole("alert")).toContainText("not signed in");
 });
 
-test("a cross-site POST to a server function is refused", async ({ request }) => {
+test("a cross-site POST to a server function is refused", async ({
+	request,
+}) => {
 	const res = await request.post("/_serverFn/anything", {
-		headers: { origin: "https://evil.example", cookie: "__Host-tasks.session_token=x" },
+		headers: {
+			origin: "https://evil.example",
+			cookie: "__Host-tasks.session_token=x",
+		},
 	});
 	expect(res.status()).toBe(403);
 });

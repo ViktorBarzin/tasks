@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IDBFactory } from "fake-indexeddb";
@@ -55,9 +55,12 @@ beforeEach(async () => {
 		],
 		tasks: [task()],
 	});
-	return () => {
-		globalThis.fetch = realFetch;
-	};
+});
+
+// bun:test ignores a cleanup returned from beforeEach, and every test file
+// shares one process: restore the real fetch for the files that run next.
+afterEach(() => {
+	globalThis.fetch = realFetch;
 });
 
 describe("TaskSheet", () => {

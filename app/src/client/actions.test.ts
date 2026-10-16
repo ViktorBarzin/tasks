@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 
-import { beforeEach, describe, expect, it, vi } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { IDBFactory } from "fake-indexeddb";
 import {
 	completeTask,
@@ -30,6 +30,8 @@ import type {
 	TaskUpdateOp,
 } from "./types";
 
+const realFetch = globalThis.fetch;
+
 beforeEach(() => {
 	globalThis.indexedDB = new IDBFactory();
 	db._resetForTests();
@@ -40,6 +42,11 @@ beforeEach(() => {
 	globalThis.fetch = vi
 		.fn()
 		.mockRejectedValue(new TypeError("offline")) as unknown as typeof fetch;
+});
+
+// bun runs every test file in one process: leave the real fetch for the next.
+afterEach(() => {
+	globalThis.fetch = realFetch;
 });
 
 describe("actions", () => {
