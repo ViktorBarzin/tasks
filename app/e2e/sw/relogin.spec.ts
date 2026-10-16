@@ -166,6 +166,25 @@ test("a device with nothing cached and no session gets the sign-in wall, and sig
 	await expect(page.locator(".list-name")).toHaveText(LISTS);
 });
 
+test("a device with nothing cached signs in through the popup and lands in the app", async ({
+	page,
+	context,
+	pwa,
+}) => {
+	pwa.authenticated = false;
+	await page.goto(`${pwa.appUrl}/`);
+	await expect(
+		page.getByRole("heading", { name: "Session expired" }),
+	).toBeVisible();
+	const [popup] = await Promise.all([
+		context.waitForEvent("page"),
+		page.getByRole("button", { name: "Sign in" }).click(),
+	]);
+	await popup.getByRole("button", { name: "Continue" }).click();
+	// The wall had no app behind it: signing in runs the launch decision again.
+	await expect(page.locator(".list-name")).toHaveText(LISTS);
+});
+
 test("the shell still cold-starts offline on a never-visited deep link (§H)", async ({
 	page,
 	context,

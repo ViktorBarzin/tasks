@@ -18,7 +18,10 @@
  * Not answered here, so they always reach the network:
  * - `/api/**`: the API, the OIDC sign-in and callback (`/api/signin`,
  *   `/api/auth/**`) and the SSE stream;
- * - `/_serverFn/**`, `/healthz`, `/metrics`.
+ * - `/_serverFn/**`, `/healthz`, `/metrics`;
+ * - `/pending` and `/admin/**`: they render outside AppGate and load through
+ *   server functions, so they need the network anyway, and hydrating the
+ *   precached `/` shell on them is a React hydration mismatch.
  */
 import { clientsClaim } from "workbox-core";
 import {
@@ -56,7 +59,14 @@ async function appShell(): Promise<Response> {
 
 registerRoute(
 	new NavigationRoute(appShell, {
-		denylist: [/^\/api\//, /^\/_serverFn\//, /^\/healthz$/, /^\/metrics$/],
+		denylist: [
+			/^\/api\//,
+			/^\/_serverFn\//,
+			/^\/healthz$/,
+			/^\/metrics$/,
+			/^\/pending$/,
+			/^\/admin(\/|$)/,
+		],
 	}),
 );
 

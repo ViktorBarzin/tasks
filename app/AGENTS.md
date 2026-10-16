@@ -142,7 +142,9 @@ queued; `e2e/sw/cutover.spec.ts` checks exactly that.
 - A signed-in person who is not approved yet gets a 403 `access_pending`
   (`AccessPendingError`); AppGate sends the window to `/pending`. `/pending`
   and `/admin/*` render outside AppGate (`src/routes/__root.tsx`) and load
-  through server functions, so they need no Connected Account.
+  through server functions, so they need no Connected Account. The service
+  worker does not answer their navigations: the precached `/` shell
+  hydrated on them is a React hydration mismatch (`e2e/sw/ungated.spec.ts`).
 - `/api/events` (SSE): `poke` from another device, `resync`, and every
   (re)connect run the normal sync cycle. That is a delta sync from the
   stored cursor, not a full snapshot: the CalDAV sync-token delta is

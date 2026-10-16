@@ -202,7 +202,16 @@ export function AppGate({ children }: { children: ReactNode }) {
 	 */
 	function onSignInTap(): void {
 		if (get(signinFailed)) void startRelogin();
-		else void signIn();
+		else if (gateRef.current === "app") void signIn();
+		// The sign-in wall has no app behind it yet: once the popup brings a
+		// session, run the launch decision (onboarding vs app) again.
+		else
+			void signIn({
+				onSignedIn: () => {
+					needsLogin.set(false);
+					void boot(ui, () => false);
+				},
+			});
 	}
 
 	async function onboarded(): Promise<void> {
