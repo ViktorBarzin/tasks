@@ -21,6 +21,8 @@ import { Route as ApiOnboardRouteImport } from './routes/api/onboard'
 import { Route as ApiOpsRouteImport } from './routes/api/ops'
 import { Route as ApiSigninRouteImport } from './routes/api/signin'
 import { Route as ApiSyncRouteImport } from './routes/api/sync'
+import { Route as ListIdRouteImport } from './routes/list.$id'
+import { Route as ViewViewRouteImport } from './routes/view.$view'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAuthFinishRouteImport } from './routes/api/auth/finish'
 import { Route as ApiAuthStartRouteImport } from './routes/api/auth/start'
@@ -85,6 +87,16 @@ const ApiSyncRoute = ApiSyncRouteImport.update({
   path: '/api/sync',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ListIdRoute = ListIdRouteImport.update({
+  id: '/list/$id',
+  path: '/list/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ViewViewRoute = ViewViewRouteImport.update({
+  id: '/view/$view',
+  path: '/view/$view',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -114,6 +126,8 @@ export interface FileRoutesByFullPath {
   '/api/ops': typeof ApiOpsRoute
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
+  '/list/$id': typeof ListIdRoute
+  '/view/$view': typeof ViewViewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/finish': typeof ApiAuthFinishRoute
   '/api/auth/start': typeof ApiAuthStartRoute
@@ -131,6 +145,8 @@ export interface FileRoutesByTo {
   '/api/ops': typeof ApiOpsRoute
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
+  '/list/$id': typeof ListIdRoute
+  '/view/$view': typeof ViewViewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/finish': typeof ApiAuthFinishRoute
   '/api/auth/start': typeof ApiAuthStartRoute
@@ -149,6 +165,8 @@ export interface FileRoutesById {
   '/api/ops': typeof ApiOpsRoute
   '/api/signin': typeof ApiSigninRoute
   '/api/sync': typeof ApiSyncRoute
+  '/list/$id': typeof ListIdRoute
+  '/view/$view': typeof ViewViewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/finish': typeof ApiAuthFinishRoute
   '/api/auth/start': typeof ApiAuthStartRoute
@@ -168,6 +186,8 @@ export interface FileRouteTypes {
     | '/api/ops'
     | '/api/signin'
     | '/api/sync'
+    | '/list/$id'
+    | '/view/$view'
     | '/api/auth/$'
     | '/api/auth/finish'
     | '/api/auth/start'
@@ -185,6 +205,8 @@ export interface FileRouteTypes {
     | '/api/ops'
     | '/api/signin'
     | '/api/sync'
+    | '/list/$id'
+    | '/view/$view'
     | '/api/auth/$'
     | '/api/auth/finish'
     | '/api/auth/start'
@@ -202,6 +224,8 @@ export interface FileRouteTypes {
     | '/api/ops'
     | '/api/signin'
     | '/api/sync'
+    | '/list/$id'
+    | '/view/$view'
     | '/api/auth/$'
     | '/api/auth/finish'
     | '/api/auth/start'
@@ -220,6 +244,8 @@ export interface RootRouteChildren {
   ApiOpsRoute: typeof ApiOpsRoute
   ApiSigninRoute: typeof ApiSigninRoute
   ApiSyncRoute: typeof ApiSyncRoute
+  ListIdRoute: typeof ListIdRoute
+  ViewViewRoute: typeof ViewViewRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAuthFinishRoute: typeof ApiAuthFinishRoute
   ApiAuthStartRoute: typeof ApiAuthStartRoute
@@ -311,6 +337,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSyncRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/list/$id': {
+      id: '/list/$id'
+      path: '/list/$id'
+      fullPath: '/list/$id'
+      preLoaderRoute: typeof ListIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/view/$view': {
+      id: '/view/$view'
+      path: '/view/$view'
+      fullPath: '/view/$view'
+      preLoaderRoute: typeof ViewViewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -348,6 +388,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOpsRoute: ApiOpsRoute,
   ApiSigninRoute: ApiSigninRoute,
   ApiSyncRoute: ApiSyncRoute,
+  ListIdRoute: ListIdRoute,
+  ViewViewRoute: ViewViewRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAuthFinishRoute: ApiAuthFinishRoute,
   ApiAuthStartRoute: ApiAuthStartRoute,

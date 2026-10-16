@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { AppShell } from "#/components/AppShell";
+import { HomePage } from "#/components/HomePage";
 
-export const Route = createFileRoute("/")({ component: AppShell });
+/** Home. Client-only: every screen renders from the IndexedDB Replica. */
+export const Route = createFileRoute("/")({ ssr: false, component: HomePage });

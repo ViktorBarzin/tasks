@@ -1,0 +1,1458 @@
+/*
+ * The tasks look, ported from the Svelte build (frontend/src/app.css plus each
+ * component's scoped <style>): Reminders-close iOS styling, system font stack,
+ * grouped backgrounds, hairline separators, blue accent, light and dark via
+ * prefers-color-scheme.
+ *
+ * Shell conventions: the page NEVER scrolls. A fixed 100dvh .app-shell takes
+ * the safe-area insets and every screen scrolls in an inner scroller.
+ *
+ * The iOS palette is prefixed `--ios-*` because shadcn/ui's tokens use
+ * `--card`, `--muted` and `--accent` with other meanings; styles.css maps
+ * those tokens onto this palette. Element rules sit in the `base` layer and
+ * component classes in `components`, so Tailwind utilities (shadcn) still win.
+ * Class names match the Svelte build's: the e2e specs select on them.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* iOS system palette (light). */
+	--ios-bg: #f2f2f7; /* systemGroupedBackground */
+	--ios-card: #ffffff; /* secondarySystemGroupedBackground */
+	--ios-card-pressed: #e5e5ea;
+	--ios-fg: #000000;
+	--ios-fg-2: #3c3c43; /* secondaryLabel-ish (opaque) */
+	--ios-muted: #8e8e93; /* systemGray */
+	--ios-hairline: rgba(60, 60, 67, 0.29); /* separator */
+	--ios-accent: #007aff; /* systemBlue */
+	--ios-danger: #ff3b30; /* systemRed */
+	--ios-orange: #ff9500;
+	--ios-field: rgba(118, 118, 128, 0.12); /* tertiary fill */
+	--ios-sheet-scrim: rgba(0, 0, 0, 0.35);
+	--ios-shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--ios-bg: #000000;
+		--ios-card: #1c1c1e;
+		--ios-card-pressed: #2c2c2e;
+		--ios-fg: #ffffff;
+		--ios-fg-2: #ebebf5;
+		--ios-muted: #98989e;
+		--ios-hairline: rgba(84, 84, 88, 0.6);
+		--ios-accent: #0a84ff;
+		--ios-danger: #ff453a;
+		--ios-orange: #ff9f0a;
+		--ios-field: rgba(118, 118, 128, 0.24);
+		--ios-sheet-scrim: rgba(0, 0, 0, 0.55);
+		--ios-shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.6);
+	}
+}
+
+@layer base {
+	* {
+		box-sizing: border-box;
+	}
+
+	html {
+		-webkit-tap-highlight-color: transparent;
+		-webkit-text-size-adjust: 100%;
+		text-rendering: optimizeLegibility;
+		-webkit-font-smoothing: antialiased;
+		/* Nothing may ever scroll the page sideways. `clip` not `hidden` so no
+		   accidental scroll container is created. */
+		overflow-x: clip;
+	}
+
+	html,
+	body {
+		margin: 0;
+		padding: 0;
+		height: 100%;
+		overscroll-behavior: none;
+	}
+
+	body {
+		background: var(--ios-bg);
+		color: var(--ios-fg);
+		font-family:
+			-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+			"Helvetica Neue", Arial, sans-serif;
+		font-size: 17px;
+		line-height: 1.3;
+	}
+
+	button {
+		font: inherit;
+		color: inherit;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+
+	input,
+	textarea,
+	select {
+		font: inherit;
+		color: var(--ios-fg);
+		/* 16px+ keeps iOS Safari from zoom-jumping into focused fields. */
+		font-size: 17px;
+	}
+
+	input::placeholder,
+	textarea::placeholder {
+		color: var(--ios-muted);
+	}
+
+	a {
+		color: var(--ios-accent);
+		text-decoration: none;
+	}
+
+	h1,
+	h2 {
+		font-size: inherit;
+		font-weight: inherit;
+	}
+}
+
+@layer components {
+	/* The single owner of viewport height + safe-area insets (all four edges). */
+	.app-shell {
+		position: fixed;
+		inset: 0;
+		height: 100dvh;
+		display: flex;
+		flex-direction: column;
+		padding-left: env(safe-area-inset-left);
+		padding-right: env(safe-area-inset-right);
+		background: var(--ios-bg);
+	}
+
+	/* --- Shared primitives ---------------------------------------------- */
+
+	.card {
+		background: var(--ios-card);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	.hairline-rows > * + * {
+		border-top: 0.5px solid var(--ios-hairline);
+	}
+
+	.field {
+		width: 100%;
+		background: var(--ios-field);
+		border: none;
+		border-radius: 10px;
+		padding: 10px 12px;
+		outline: none;
+	}
+
+	/* The compact search input every task screen puts under its nav bar. */
+	.search {
+		width: 100%;
+		background: var(--ios-field);
+		border: none;
+		border-radius: 10px;
+		padding: 8px 12px;
+		outline: none;
+		margin-bottom: 16px;
+		-webkit-appearance: none;
+		appearance: none;
+	}
+
+	.eyebrow {
+		font-size: 13px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--ios-muted);
+	}
+
+	/* Empty-state line inside a card or screen body. */
+	.empty {
+		padding: 18px 14px;
+		color: var(--ios-muted);
+		font-size: 15px;
+		text-align: center;
+		margin: 0;
+	}
+
+	/* --- App gate (banners, sign-in wall, boot) ---------------------------- */
+
+	.reconnect-banner {
+		flex: none;
+		margin: calc(env(safe-area-inset-top) + 8px) 16px 0;
+		padding: 10px 14px;
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--ios-danger) 14%, var(--ios-card));
+		color: var(--ios-danger);
+		font-size: 14px;
+		text-align: left;
+	}
+
+	.dead-banner,
+	.stuck-banner {
+		display: block;
+		flex: none;
+		margin: calc(env(safe-area-inset-top) + 8px) 16px 0;
+		padding: 10px 14px;
+		border-radius: 12px;
+		font-size: 14px;
+		text-align: left;
+	}
+
+	.dead-banner {
+		background: color-mix(in srgb, var(--ios-danger) 14%, var(--ios-card));
+		color: var(--ios-danger);
+	}
+
+	.stuck-banner {
+		background: color-mix(in srgb, var(--ios-orange) 16%, var(--ios-card));
+		color: var(--ios-orange);
+	}
+
+	/* Full-screen sibling of Onboarding: same measure, same button, for the
+	   device that has no cached tasks to sit behind a banner. */
+	.signin-wall {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		text-align: center;
+		padding: calc(env(safe-area-inset-top) + 24px) 24px
+			calc(env(safe-area-inset-bottom) + 24px);
+	}
+
+	.signin-wall h1 {
+		font-size: 28px;
+		font-weight: 700;
+		margin: 0;
+	}
+
+	.signin-wall p {
+		margin: 0 0 8px;
+		color: var(--ios-muted);
+		font-size: 15px;
+	}
+
+	.signin-button {
+		width: min(420px, 100%);
+		background: var(--ios-accent);
+		color: #fff;
+		font-size: 17px;
+		font-weight: 600;
+		border-radius: 12px;
+		padding: 13px;
+	}
+
+	.boot {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.boot-spin {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		border: 3px solid var(--ios-field);
+		border-top-color: var(--ios-muted);
+		animation: tasks-rotate 0.8s linear infinite;
+	}
+
+	.reconnect-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 70;
+		background: var(--ios-bg);
+		display: flex;
+		flex-direction: column;
+	}
+
+	.first-sync {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		background: var(--ios-bg);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 16px;
+	}
+
+	.first-sync p {
+		margin: 0;
+		color: var(--ios-muted);
+		font-size: 15px;
+	}
+
+	/* --- Screen: nav bar, inner scroller with pull-to-refresh, bottom bar -- */
+
+	.screen {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.navbar {
+		flex: none;
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 8px;
+		padding: calc(env(safe-area-inset-top) + 6px) 12px 6px;
+		min-height: calc(env(safe-area-inset-top) + 44px);
+		background: var(--ios-bg);
+	}
+
+	.nav-side {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 32px;
+	}
+
+	.navbar .back {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--ios-accent);
+		font-size: 17px;
+		font-weight: 500;
+		padding: 4px 6px 4px 0;
+	}
+
+	/* The inner scroller: the only thing that scrolls. */
+	.scroller {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		overscroll-behavior-y: contain;
+		padding: 0 16px;
+	}
+
+	/* Pull-to-refresh: the spacer grows with the pull; spinner fades in. The
+	   ptr-* classes are added at runtime by the pullToRefresh action. */
+	.ptr {
+		height: var(--ptr-offset, 0px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.scroller:not(.ptr-pulling) .ptr {
+		transition: height 0.22s ease;
+	}
+
+	.ptr-spinner {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 2.5px solid var(--ios-field);
+		border-top-color: var(--ios-muted);
+		opacity: 0;
+		transform: rotate(calc(var(--ptr-offset, 0px) * 3deg));
+		transition: opacity 0.15s ease;
+	}
+
+	.scroller.ptr-armed .ptr-spinner {
+		opacity: 1;
+	}
+
+	.scroller.ptr-refreshing .ptr-spinner {
+		opacity: 1;
+		animation: tasks-rotate 0.8s linear infinite;
+	}
+
+	.large-title {
+		font-size: 34px;
+		font-weight: 700;
+		letter-spacing: -0.02em;
+		margin: 4px 0 12px;
+	}
+
+	.tail-space {
+		height: 32px;
+	}
+
+	.bottombar {
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 16px max(env(safe-area-inset-bottom), 12px);
+		background: var(--ios-bg);
+		border-top: 0.5px solid var(--ios-hairline);
+	}
+
+	/* --- Status pills (offline, pending ops, syncing) ---------------------- */
+
+	.pills {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+		font-weight: 600;
+		padding: 3px 8px;
+		border-radius: 999px;
+	}
+
+	.pill.offline {
+		background: var(--ios-field);
+		color: var(--ios-muted);
+	}
+
+	.pill.pending {
+		background: color-mix(in srgb, var(--ios-orange) 18%, transparent);
+		color: var(--ios-orange);
+	}
+
+	.pills .spin {
+		width: 13px;
+		height: 13px;
+		border-radius: 50%;
+		border: 2px solid var(--ios-field);
+		border-top-color: var(--ios-muted);
+		animation: tasks-rotate 0.8s linear infinite;
+	}
+
+	/* --- Home ------------------------------------------------------------ */
+
+	.tiles {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+
+	/* Tiles are role="link" divs, NOT anchors: iOS owns long-press on links.
+	   The static callout/select-off keeps iOS from claiming a long-press. */
+	.tile {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 12px;
+		color: inherit;
+		cursor: pointer;
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
+	.tile:active {
+		background: var(--ios-card-pressed);
+	}
+
+	.tile-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.tile-icon {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		color: #fff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.tile-count {
+		font-size: 24px;
+		font-weight: 700;
+	}
+
+	.tile-label {
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--ios-muted);
+	}
+
+	.section-heading {
+		margin: 22px 2px 8px;
+	}
+
+	/* Rows are long-press drag targets in EVERY mode: callout/select off
+	   statically (iOS decides the gesture before JS runs) and `pan-y` so the
+	   list still scrolls until a lift actually happens. */
+	.list-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 11px 14px;
+		color: inherit;
+		position: relative;
+		box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+		touch-action: pan-y;
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
+	/* Nav rows only: grabbing a handle in Edit mode must not flash the row. */
+	.list-row.nav {
+		cursor: pointer;
+	}
+
+	.list-row.nav:active {
+		background: var(--ios-card-pressed);
+	}
+
+	.list-dot {
+		flex: none;
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+		color: #fff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.list-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.list-count {
+		color: var(--ios-muted);
+		font-size: 17px;
+	}
+
+	.chevron {
+		color: var(--ios-hairline);
+		flex: none;
+	}
+
+	.edit-btn {
+		color: var(--ios-accent);
+		font-size: 17px;
+		padding: 4px 2px;
+	}
+
+	.edit-btn.strong {
+		font-weight: 600;
+	}
+
+	/* The lift look (long-press or Edit handle): the dragReorder action drives
+	   transforms inline; this is only the static shadow/stacking. */
+	.list-row.drag-lifted,
+	.task-item.drag-lifted {
+		z-index: 2;
+		background: var(--ios-card);
+		border-radius: 10px;
+		box-shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
+	}
+
+	.drag-handle {
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px; /* iOS minimum hit target */
+		height: 44px;
+		margin: -7px -10px -7px 0;
+		color: var(--ios-muted);
+		/* The drag owns the gesture from the very first touch. Must be CSS: an
+		   inline write from pointerdown is too late for the current touch. */
+		touch-action: none;
+		-webkit-touch-callout: none;
+		cursor: grab;
+	}
+
+	.list-row.drag-lifted .drag-handle {
+		cursor: grabbing;
+	}
+
+	/* Desktop affordance: fine-pointer devices see reorderable rows as
+	   grabbable (the mouse path lifts after ~5px of pressed travel). */
+	@media (hover: hover) and (pointer: fine) {
+		.list-row.draggable,
+		.list-row.nav.draggable {
+			cursor: grab;
+		}
+
+		.task-item.draggable,
+		.task-item.draggable button {
+			cursor: grab;
+		}
+	}
+
+	.results {
+		margin-top: 2px;
+	}
+
+	.new-task {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--ios-accent);
+		font-size: 17px;
+		font-weight: 600;
+	}
+
+	.new-task:disabled {
+		opacity: 0.4;
+	}
+
+	.add-list {
+		color: var(--ios-accent);
+		font-size: 17px;
+	}
+
+	/* --- List screen ------------------------------------------------------ */
+
+	.menu-btn {
+		display: flex;
+		align-items: center;
+		color: var(--ios-accent);
+		padding: 4px;
+	}
+
+	.task-item {
+		position: relative;
+		box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+		touch-action: pan-y;
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
+	/* --- Smart views ------------------------------------------------------ */
+
+	.group-heading {
+		margin: 18px 2px 8px;
+	}
+
+	.group-heading.overdue {
+		color: var(--ios-danger);
+	}
+
+	/* --- Completed bar ---------------------------------------------------- */
+
+	.completed-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 2px 2px 10px;
+		font-size: 15px;
+	}
+
+	.completed-bar .count {
+		color: var(--ios-muted);
+	}
+
+	.completed-bar .toggle {
+		color: var(--ios-accent);
+		font-weight: 500;
+		padding: 2px 4px;
+	}
+
+	/* --- Task row ---------------------------------------------------------- */
+
+	/* The green lives on the underlay, not the wrapper: the wrapper matches the
+	   card so translucent hairline separators don't blend over green. */
+	.row-wrap {
+		position: relative;
+		background: var(--ios-card);
+	}
+
+	.swipe-under {
+		position: absolute;
+		inset: 0;
+		background: #34c759;
+		display: flex;
+		align-items: center;
+		padding-left: 18px;
+	}
+
+	.row-wrap .row {
+		position: relative;
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 11px 12px;
+		background: var(--ios-card);
+		touch-action: pan-y;
+	}
+
+	.row-wrap .check {
+		flex: none;
+		width: 24px;
+		height: 24px;
+		margin-top: 1px;
+		border-radius: 50%;
+		border: 1.5px solid var(--ios-muted);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: border-color 0.2s ease;
+	}
+
+	/* Generous tap target without growing the visual circle. */
+	.row-wrap .check::after {
+		content: "";
+		position: absolute;
+		width: 44px;
+		height: 44px;
+		left: 0;
+		top: 0;
+	}
+
+	.row-wrap .check .dot {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--tint);
+		transform: scale(0);
+		transition: transform 0.18s ease-out;
+	}
+
+	.row-wrap .check.on {
+		border-color: var(--tint);
+	}
+
+	.row-wrap .check.on .dot {
+		transform: scale(1);
+	}
+
+	.row-wrap .body {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		text-align: left;
+		padding: 0;
+	}
+
+	.row-wrap .title-line {
+		display: flex;
+		gap: 5px;
+		align-items: baseline;
+		min-width: 0;
+	}
+
+	.row-wrap .prio {
+		font-weight: 700;
+		flex: none;
+		letter-spacing: 0.5px;
+	}
+
+	.row-wrap .title {
+		position: relative;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		transition: color 0.25s ease;
+	}
+
+	/* The strike: a line that sweeps across on completion. */
+	.row-wrap .title::after {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 55%;
+		height: 1.5px;
+		width: 0;
+		background: var(--ios-muted);
+		transition: width 0.25s ease;
+	}
+
+	.row-wrap .completed .title {
+		color: var(--ios-muted);
+	}
+
+	.row-wrap .completed .title::after {
+		width: 100%;
+	}
+
+	.row-wrap .completed .prio {
+		color: var(--ios-muted) !important;
+	}
+
+	.row-wrap .notes {
+		font-size: 14px;
+		color: var(--ios-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.row-wrap .meta {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 14px;
+		color: var(--ios-muted);
+	}
+
+	.row-wrap .due.overdue {
+		color: var(--ios-danger);
+	}
+
+	.row-wrap .repeat {
+		flex: none;
+	}
+
+	.row-wrap .caption::before {
+		content: "·";
+		margin-right: 6px;
+	}
+
+	.row.swipe-armed .check {
+		border-color: #34c759;
+	}
+
+	/* --- Quick add ---------------------------------------------------------- */
+
+	.quick-add {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		background: var(--ios-field);
+		border-radius: 12px;
+		padding: 8px 12px;
+	}
+
+	.quick-add .plus {
+		color: var(--ios-accent);
+		display: flex;
+	}
+
+	.quick-add input {
+		flex: 1;
+		background: none;
+		border: none;
+		outline: none;
+		min-width: 0;
+	}
+
+	/* The cycling priority mark: renders exactly like TaskRow's !/!!/!!!. */
+	.quick-add .prio {
+		flex: none;
+		min-width: 30px;
+		padding: 3px 4px;
+		font-weight: 700;
+		letter-spacing: 0.5px;
+		color: var(--ios-muted);
+		opacity: 0.4;
+		text-align: center;
+	}
+
+	.quick-add .prio.set {
+		color: var(--ios-accent);
+		opacity: 1;
+	}
+
+	.quick-add .expand {
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		margin: -2px -4px -2px 0;
+		border-radius: 50%;
+		color: var(--ios-accent);
+	}
+
+	/* --- Overlays (Radix Dialog roots) -------------------------------------
+	   Radix keeps a closing overlay mounted until ITS animation ends, so each
+	   overlay runs a no-op animation as long as its children's exit. */
+
+	.sheet-overlay,
+	.menu-overlay,
+	.alert-overlay {
+		position: fixed;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		outline: none;
+	}
+
+	.sheet-overlay {
+		z-index: 50;
+		justify-content: flex-end;
+	}
+
+	.menu-overlay {
+		z-index: 55;
+		justify-content: flex-end;
+	}
+
+	.alert-overlay {
+		z-index: 60;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+	}
+
+	.sheet-overlay[data-state="closed"] {
+		animation: tasks-hold 260ms;
+	}
+
+	.menu-overlay[data-state="closed"] {
+		animation: tasks-hold 220ms;
+	}
+
+	.alert-overlay[data-state="closed"] {
+		animation: tasks-hold 180ms;
+	}
+
+	.scrim {
+		position: absolute;
+		inset: 0;
+		background: var(--ios-sheet-scrim);
+		animation: tasks-fade-in 150ms ease-out;
+	}
+
+	[data-state="closed"] > .scrim {
+		animation: tasks-fade-out 150ms ease-in forwards;
+	}
+
+	/* --- Task sheet --------------------------------------------------------- */
+
+	.sheet {
+		position: relative;
+		background: var(--ios-bg);
+		border-radius: 14px 14px 0 0;
+		box-shadow: var(--ios-shadow-sheet);
+		max-height: calc(100dvh - max(env(safe-area-inset-top), 24px) - 16px);
+		display: flex;
+		flex-direction: column;
+		animation: tasks-sheet-in 260ms cubic-bezier(0.33, 1, 0.68, 1);
+	}
+
+	[data-state="closed"] > .sheet {
+		animation: tasks-sheet-out 260ms ease-in forwards;
+	}
+
+	.sheet .grabber {
+		width: 38px;
+		height: 5px;
+		border-radius: 3px;
+		background: var(--ios-hairline);
+		margin: 6px auto 0;
+		flex: none;
+	}
+
+	.sheet header {
+		flex: none;
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
+		align-items: center;
+		padding: 8px 16px;
+	}
+
+	.sheet h2 {
+		font-size: 17px;
+		font-weight: 600;
+		margin: 0;
+		text-align: center;
+	}
+
+	.sheet .hdr-btn {
+		color: var(--ios-accent);
+		font-size: 17px;
+		justify-self: start;
+		padding: 4px 0;
+	}
+
+	.sheet .hdr-btn.strong {
+		font-weight: 600;
+		justify-self: end;
+	}
+
+	.sheet .hdr-btn:disabled {
+		opacity: 0.35;
+	}
+
+	.sheet-scroll {
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		overscroll-behavior-y: contain;
+		padding: 4px 16px max(env(safe-area-inset-bottom), 16px);
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+
+	.sheet .group {
+		background: var(--ios-card);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	.sheet .group > * + * {
+		border-top: 0.5px solid var(--ios-hairline);
+	}
+
+	.sheet .row-input {
+		display: block;
+		width: 100%;
+		background: none;
+		border: none;
+		outline: none;
+		padding: 12px 14px;
+	}
+
+	.sheet .title-input {
+		font-weight: 500;
+	}
+
+	.sheet .notes-input {
+		resize: none;
+		min-height: 72px;
+		font-size: 15px;
+	}
+
+	.sheet .form-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 14px;
+		min-height: 44px;
+	}
+
+	.sheet .form-row.disabled {
+		opacity: 0.45;
+	}
+
+	.sheet .row-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 16px;
+	}
+
+	.sheet .picker {
+		background: var(--ios-field);
+		border: none;
+		border-radius: 8px;
+		padding: 6px 10px;
+		outline: none;
+		max-width: 60%;
+		font-size: 15px;
+	}
+
+	.sheet .chip-row {
+		display: flex;
+		gap: 8px;
+		padding: 10px 14px 12px;
+	}
+
+	.sheet .chip {
+		font-size: 14px;
+		font-weight: 500;
+		color: var(--ios-accent);
+		background: var(--ios-field);
+		border-radius: 999px;
+		padding: 5px 12px;
+	}
+
+	.sheet .chip.clear {
+		color: var(--ios-danger);
+	}
+
+	.sheet .segments {
+		display: flex;
+		gap: 4px;
+		padding: 4px;
+		margin: 8px 14px 12px;
+		background: var(--ios-field);
+		border-radius: 10px;
+	}
+
+	/* Labels around visually hidden radio inputs (native arrow-key handling). */
+	.sheet .segment {
+		flex: 1;
+		text-align: center;
+		cursor: pointer;
+		padding: 6px 4px;
+		font-size: 14px;
+		font-weight: 500;
+		border-radius: 8px;
+		color: var(--ios-fg-2);
+	}
+
+	.sheet .segment:has(input:focus-visible) {
+		outline: 2px solid var(--ios-accent);
+	}
+
+	.sheet .segment.selected {
+		background: var(--ios-card);
+		color: var(--ios-fg);
+		font-weight: 600;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+	}
+
+	.sheet .repeat-row {
+		color: var(--ios-muted);
+	}
+
+	.sheet .repeat-note {
+		font-size: 12px;
+		color: var(--ios-muted);
+		text-align: right;
+		max-width: 65%;
+	}
+
+	.sheet .delete-btn {
+		display: block;
+		width: 100%;
+		padding: 13px 16px;
+		text-align: center;
+		color: var(--ios-danger);
+		font-size: 17px;
+	}
+
+	.sheet .delete-btn:active {
+		background: var(--ios-card-pressed);
+	}
+
+	/* --- Action menu (iOS action sheet) ------------------------------------ */
+
+	.menu-sheet {
+		position: relative;
+		padding: 8px 10px max(env(safe-area-inset-bottom), 10px);
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		animation: tasks-menu-in 220ms cubic-bezier(0.33, 1, 0.68, 1);
+	}
+
+	[data-state="closed"] > .menu-sheet {
+		animation: tasks-menu-out 220ms ease-in forwards;
+	}
+
+	.menu-group {
+		border-radius: 14px;
+		background: var(--ios-card);
+		overflow: hidden;
+	}
+
+	.menu-group > * + * {
+		border-top: 0.5px solid var(--ios-hairline);
+	}
+
+	.menu-title {
+		text-align: center;
+		font-size: 13px;
+		color: var(--ios-muted);
+		padding: 10px 16px;
+	}
+
+	.menu-item {
+		display: block;
+		width: 100%;
+		text-align: center;
+		padding: 15px 16px;
+		font-size: 19px;
+		color: var(--ios-accent);
+	}
+
+	.menu-item:active {
+		background: var(--ios-card-pressed);
+	}
+
+	/* Fixed-width slot so radio-style labels stay centered as a column. */
+	.menu-item .tick {
+		display: inline-block;
+		width: 22px;
+		margin-left: -22px;
+		text-align: left;
+		font-weight: 600;
+	}
+
+	.menu-item.danger {
+		color: var(--ios-danger);
+	}
+
+	.menu-item.cancel {
+		font-weight: 600;
+	}
+
+	/* --- Alert (confirm / text prompt) ------------------------------------- */
+
+	.alert {
+		position: relative;
+		width: min(280px, 100%);
+		border-radius: 14px;
+		background: var(--ios-card);
+		box-shadow: 0 10px 50px rgba(0, 0, 0, 0.3);
+		overflow: hidden;
+		animation: tasks-alert-in 180ms ease-out;
+	}
+
+	[data-state="closed"] > .alert {
+		animation: tasks-alert-out 180ms ease-in forwards;
+	}
+
+	.alert-body {
+		padding: 18px 16px 14px;
+		text-align: center;
+	}
+
+	.alert h2 {
+		font-size: 17px;
+		font-weight: 600;
+		margin: 0 0 4px;
+	}
+
+	.alert p {
+		font-size: 13px;
+		color: var(--ios-fg-2);
+		margin: 0;
+	}
+
+	.alert .prompt {
+		margin-top: 12px;
+		width: 100%;
+		border: 0.5px solid var(--ios-hairline);
+		border-radius: 8px;
+		padding: 7px 10px;
+		background: var(--ios-bg);
+		outline: none;
+		font-size: 15px;
+	}
+
+	.alert-buttons {
+		display: flex;
+		border-top: 0.5px solid var(--ios-hairline);
+	}
+
+	.alert-btn {
+		flex: 1;
+		padding: 12px 8px;
+		font-size: 17px;
+		color: var(--ios-accent);
+	}
+
+	.alert-btn + .alert-btn {
+		border-left: 0.5px solid var(--ios-hairline);
+	}
+
+	.alert-btn.strong {
+		font-weight: 600;
+	}
+
+	.alert-btn.danger {
+		color: var(--ios-danger);
+	}
+
+	.alert-btn:disabled {
+		opacity: 0.4;
+	}
+
+	.alert-btn:active {
+		background: var(--ios-card-pressed);
+	}
+
+	/* --- Onboarding --------------------------------------------------------- */
+
+	.onboard {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		display: flex;
+		justify-content: center;
+		padding: calc(env(safe-area-inset-top) + 40px) 24px
+			calc(env(safe-area-inset-bottom) + 32px);
+	}
+
+	.onboard .inner {
+		width: min(420px, 100%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+	}
+
+	.onboard .mark {
+		width: 72px;
+		height: 72px;
+		border-radius: 18px;
+		background: linear-gradient(160deg, #4da3ff, #0a5fd6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 8px 24px rgba(10, 95, 214, 0.35);
+	}
+
+	.onboard h1 {
+		font-size: 28px;
+		font-weight: 700;
+		margin: 18px 0 6px;
+	}
+
+	.onboard .lede {
+		color: var(--ios-fg-2);
+		font-size: 15px;
+		margin: 0 0 22px;
+	}
+
+	.onboard form {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+
+	.onboard label {
+		text-align: left;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.onboard label span {
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--ios-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.onboard .connect {
+		margin-top: 6px;
+		background: var(--ios-accent);
+		color: #fff;
+		font-size: 17px;
+		font-weight: 600;
+		border-radius: 12px;
+		padding: 13px;
+	}
+
+	.onboard .connect:disabled {
+		opacity: 0.5;
+	}
+
+	.onboard .cancel {
+		color: var(--ios-accent);
+		padding: 8px;
+	}
+
+	.onboard .error {
+		color: var(--ios-danger);
+		font-size: 14px;
+		margin: 0;
+		text-align: left;
+	}
+
+	.onboard .hint {
+		margin-top: 26px;
+		font-size: 13px;
+		color: var(--ios-muted);
+	}
+}
+
+@keyframes tasks-rotate {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Keeps a closing Radix overlay mounted while its children animate out. */
+@keyframes tasks-hold {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes tasks-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes tasks-fade-out {
+	to {
+		opacity: 0;
+	}
+}
+
+/* Svelte's fly({ y: 500 }) for the task sheet. */
+@keyframes tasks-sheet-in {
+	from {
+		transform: translateY(500px);
+		opacity: 0;
+	}
+}
+
+@keyframes tasks-sheet-out {
+	to {
+		transform: translateY(500px);
+		opacity: 0;
+	}
+}
+
+/* fly({ y: 200 }) for the action menu. */
+@keyframes tasks-menu-in {
+	from {
+		transform: translateY(200px);
+		opacity: 0;
+	}
+}
+
+@keyframes tasks-menu-out {
+	to {
+		transform: translateY(200px);
+		opacity: 0;
+	}
+}
+
+/* scale({ start: 1.08 }) for alerts. */
+@keyframes tasks-alert-in {
+	from {
+		transform: scale(1.08);
+		opacity: 0;
+	}
+}
+
+@keyframes tasks-alert-out {
+	to {
+		transform: scale(1.08);
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

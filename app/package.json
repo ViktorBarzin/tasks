@@ -36,6 +36,7 @@
 		"clsx": "^2.1.1",
 		"drizzle-orm": "^0.45.1",
 		"ical.js": "^2.2.1",
+		"idb": "^8.0.4",
 		"jose": "^6.2.12",
 		"lucide-react": "^0.577.0",
 		"nitro": "3.0.260610-beta",
@@ -46,6 +47,9 @@
 		"tailwind-merge": "^3.0.2",
 		"tailwindcss": "^4.1.18",
 		"tw-animate-css": "^1.3.6",
+		"workbox-core": "^7.4.1",
+		"workbox-precaching": "^7.4.1",
+		"workbox-routing": "^7.4.1",
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
@@ -63,10 +67,12 @@
 		"@types/react-dom": "^19.2.0",
 		"@vitejs/plugin-react": "^6.0.1",
 		"drizzle-kit": "^0.31.9",
+		"fake-indexeddb": "^6.2.5",
 		"fast-check": "^4.10.2",
 		"postgres": "^3.4.9",
 		"typescript": "^6.0.2",
-		"vite": "^8.0.0"
+		"vite": "^8.0.0",
+		"vite-plugin-pwa": "^2.0.0"
 	},
 	"intent": {
 		"skills": [
