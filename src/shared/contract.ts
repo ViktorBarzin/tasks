@@ -1,11 +1,11 @@
 /**
  * THE API CONTRACT, TypeScript side of the port.
  *
- * Mirrors backend/tasks_api/schemas.py and frontend/src/lib/types.ts, plus the
- * contract deltas in docs/ (v1.1 to v1.4). Installed PWAs keep running the old
- * Svelte build against this server until they update, and queued offline ops
- * replay against it, so every shape here is byte-compatible with the FastAPI
- * backend. Change it only together with a contract-delta doc.
+ * The contract in docs/2026-07-03-tasks-pwa-design.md plus the contract
+ * deltas in docs/ (v1.1 to v1.4), byte-compatible with the retired FastAPI
+ * backend it was ported from. Queued offline ops replay against it and
+ * clients branch on its error codes, so change it only together with a
+ * contract-delta doc.
  *
  * Byte-compatibility notes for builders:
  * - Interfaces list fields in wire order. FastAPI (Pydantic) serialises in

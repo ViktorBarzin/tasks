@@ -4,11 +4,9 @@
  * each test gets a fresh origin and its own state.
  *
  *  - APP origin: the page and the stubbed /api. Pages and assets come from
- *    the BUILT TypeScript server (`upstream`, proxied) in "react" mode, or
- *    from the Svelte build directory in "svelte" mode, which is how the
- *    cutover spec swaps the image under an installed PWA. /api is always the
- *    stub below, shaped like the TypeScript server: no session → 401
- *    `unauthorized` envelope; GET /api/signin starts an OIDC round trip.
+ *    the BUILT server (`upstream`, proxied). /api is the stub below, shaped
+ *    like the real server: no session → 401 `unauthorized` envelope;
+ *    GET /api/signin starts an OIDC round trip.
  *  - SSO origin: an Authentik stand-in. /authorize shows a login page
  *    (#sso-login, "Continue"), /complete redirects back to the app's OAuth
  *    callback, which sets the session cookie and returns to /api/signin.
@@ -16,7 +14,6 @@
  * `page.route` cannot stub requests made by a service worker, so the PWA
  * specs stub at this server instead.
  */
-import { createReadStream, existsSync, statSync } from "node:fs";
 import {
 	createServer,
 	request as httpRequest,
@@ -25,7 +22,6 @@ import {
 	type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import { extname, join, normalize } from "node:path";
 
 export interface StubList {
 	id: string;
@@ -49,8 +45,6 @@ export interface PostedBatch {
 export interface PwaServer {
 	appUrl: string;
 	ssoUrl: string;
-	/** "react": the TypeScript build; "svelte": the old static build. */
-	mode: "react" | "svelte";
 	authenticated: boolean;
 	/** What /api/me reports: false is a signed-in user who has not connected Nextcloud yet. */
 	connected: boolean;
@@ -68,23 +62,6 @@ export interface PwaServer {
 	dropStreams(): void;
 	close(): Promise<void>;
 }
-
-const MIME: Record<string, string> = {
-	".css": "text/css",
-	".html": "text/html; charset=utf-8",
-	".js": "text/javascript",
-	".json": "application/json",
-	".png": "image/png",
-	".svg": "image/svg+xml",
-	".webmanifest": "application/manifest+json",
-};
-
-const LEGACY_PATHS = new Set([
-	"/api/me",
-	"/api/onboard",
-	"/api/sync",
-	"/api/ops",
-]);
 
 // The real cookie is `__Host-` prefixed; that needs HTTPS, so the stand-in uses a plain name.
 const SESSION_COOKIE = "tasks_e2e_session";
@@ -141,7 +118,6 @@ function safeReturnTo(value: string | null): string {
 
 export async function startPwaServer(options: {
 	upstream: string;
-	svelteBuild?: string;
 	lists?: StubList[];
 	tasks?: unknown[];
 }): Promise<PwaServer> {
@@ -156,7 +132,6 @@ export async function startPwaServer(options: {
 	const state: PwaServer = {
 		appUrl,
 		ssoUrl,
-		mode: "react",
 		authenticated: true,
 		connected: true,
 		opsNeedClientId: false,
@@ -235,17 +210,6 @@ export async function startPwaServer(options: {
 
 		if (!hasSession(req)) {
 			state.unauthorized++;
-			// The server's legacyClientRedirect (src/server/http/api.server.ts):
-			// the Svelte build's same-origin fetches get a redirect, which it
-			// reads as an expired session, not a revoked app password.
-			if (
-				LEGACY_PATHS.has(path) &&
-				!req.headers["x-tasks-client-id"] &&
-				!req.headers.authorization &&
-				req.headers["sec-fetch-site"] === "same-origin" &&
-				req.headers["sec-fetch-mode"] !== "navigate"
-			)
-				return redirect(res, "/api/signin");
 			return json(
 				res,
 				{ error: { code: "unauthorized", message: "sign in required" } },
@@ -308,27 +272,6 @@ export async function startPwaServer(options: {
 		return json(res, { error: { code: "not_found", message: path } }, 404);
 	}
 
-	function serveSvelte(res: ServerResponse, pathname: string): void {
-		const root = options.svelteBuild;
-		if (!root) {
-			res.writeHead(500);
-			res.end("no svelte build configured");
-			return;
-		}
-		const rel = normalize(decodeURIComponent(pathname)).replace(
-			/^(\.\.[/\\])+/,
-			"",
-		);
-		let file = join(root, rel);
-		if (!existsSync(file) || statSync(file).isDirectory())
-			file = join(root, "index.html");
-		res.writeHead(200, {
-			"content-type": MIME[extname(file)] ?? "application/octet-stream",
-			"cache-control": "no-store",
-		});
-		createReadStream(file).pipe(res);
-	}
-
 	function proxy(req: IncomingMessage, res: ServerResponse): void {
 		const target = new URL(req.url ?? "/", options.upstream);
 		const upstream = httpRequest(
@@ -355,8 +298,7 @@ export async function startPwaServer(options: {
 			});
 			return;
 		}
-		if (state.mode === "svelte") serveSvelte(res, url.pathname);
-		else proxy(req, res);
+		proxy(req, res);
 	});
 
 	sso.on("request", (req, res) => {

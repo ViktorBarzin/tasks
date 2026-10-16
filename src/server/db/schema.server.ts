@@ -1,11 +1,8 @@
 /**
- * Drizzle schema for the two tables Alembic created (backend/alembic/versions
- * 0001 + 0002). It must match the live database exactly: the baseline in
+ * Drizzle schema for the two tables the retired Python build created with
+ * Alembic. It must match the live database exactly: the baseline in
  * drizzle/0000_baseline.sql was pulled from it, and `bun run db:generate`
  * reports "No schema changes" while the two agree.
- *
- * Migrations stay additive while the Python image is a rollback target,
- * because that image runs `alembic upgrade head` on every start (ADR-0001).
  */
 import {
 	customType,
@@ -19,8 +16,8 @@ import {
  * `bytea`, written by hand because drizzle-kit cannot introspect it.
  *
  * `enc_app_password` holds the ASCII bytes of a Fernet token (base64url text),
- * exactly as Python's `Fernet.encrypt()` returned them, so both images can read
- * each other's rows. See src/server/crypto/fernet.server.ts.
+ * exactly as Python's `Fernet.encrypt()` returned them, so rows written by the
+ * retired Python build still decrypt. See src/server/crypto/fernet.server.ts.
  */
 export const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
 	dataType() {

@@ -41,7 +41,7 @@ describe("Fernet spec vectors", () => {
 	});
 });
 
-describe("compatibility with Python cryptography", () => {
+describe("compatibility with stored tokens (recorded from Python cryptography)", () => {
 	test("decrypts a token Python produced", () => {
 		expect(utf8(fernetDecrypt(python.key, python.random_token))).toBe(
 			python.plaintext,
@@ -66,26 +66,6 @@ describe("compatibility with Python cryptography", () => {
 		const text = Buffer.from(stored).toString("ascii");
 		expect(text).toMatch(/^gAAAAA[A-Za-z0-9_-]+={0,2}$/);
 		expect(text.length % 4).toBe(0);
-	});
-
-	// Runs only when TASKS_FERNET_PYTHON points at a Python with `cryptography`,
-	// e.g. TASKS_FERNET_PYTHON=../backend/.venv/bin/python bun run test
-	const pythonBin = process.env.TASKS_FERNET_PYTHON;
-	test.skipIf(!pythonBin)("Python decrypts a token this module made", () => {
-		const token = fernetEncrypt(python.key, python.plaintext);
-		const script =
-			"import sys; from cryptography.fernet import Fernet; " +
-			"sys.stdout.write(Fernet(sys.argv[1].encode()).decrypt(sys.argv[2].encode()).decode())";
-		const proc = Bun.spawnSync([
-			pythonBin ?? "",
-			"-I",
-			"-c",
-			script,
-			python.key,
-			token,
-		]);
-		expect(proc.exitCode).toBe(0);
-		expect(proc.stdout.toString()).toBe(python.plaintext);
 	});
 });
 

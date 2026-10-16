@@ -167,7 +167,7 @@ describe.skipIf(!testDatabaseUrl)("/api routes", () => {
 			expect((await envelope(res)).code).toBe("unauthorized");
 		});
 
-		test("no session: the Svelte build's same-origin fetch is redirected to sign-in; everyone else gets the 401", async () => {
+		test("no session is a 401 envelope for every caller, with or without the client id", async () => {
 			as(null);
 			const call = (path: string, headers: Record<string, string>) => {
 				const route = { "/api/me": meRoute, "/api/sync": syncRoute }[path];
@@ -176,23 +176,22 @@ describe.skipIf(!testDatabaseUrl)("/api routes", () => {
 					"GET",
 				)({ request: new Request(`${BASE}${path}`, { headers }) });
 			};
-			const svelte = {
+			const sameOrigin = {
 				"sec-fetch-site": "same-origin",
 				"sec-fetch-mode": "cors",
 			};
+			const callers: Record<string, string>[] = [
+				sameOrigin, // a same-origin fetch without the client id
+				{ ...sameOrigin, [CLIENT_ID_HEADER]: "tab-1" }, // the web app
+				{ ...sameOrigin, authorization: "Bearer x" }, // a token client
+				{}, // curl, a CLI
+				{ "sec-fetch-site": "cross-site", "sec-fetch-mode": "cors" },
+			];
 			for (const path of ["/api/me", "/api/sync"]) {
-				const legacy = await call(path, svelte);
-				expect(legacy.status).toBe(302);
-				expect(legacy.headers.get("location")).toBe("/api/signin");
-				const others: Record<string, string>[] = [
-					{ ...svelte, [CLIENT_ID_HEADER]: "tab-1" }, // the React build
-					{ ...svelte, authorization: "Bearer x" }, // a token client
-					{}, // curl, a CLI
-					{ "sec-fetch-site": "cross-site", "sec-fetch-mode": "cors" },
-				];
-				for (const headers of others) {
+				for (const headers of callers) {
 					const res = await call(path, headers);
 					expect(res.status).toBe(401);
+					expect((await envelope(res)).code).toBe("unauthorized");
 				}
 			}
 		});

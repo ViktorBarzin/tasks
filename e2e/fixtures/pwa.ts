@@ -1,16 +1,12 @@
 import { test as base, expect, type Page } from "@playwright/test";
 
-import { SVELTE_BUILD } from "../global-setup";
 import { type PwaServer, startPwaServer } from "./pwa-server";
 
 /** A per-test stub origin in front of the built server (see pwa-server.ts). */
 export const test = base.extend<{ pwa: PwaServer }>({
 	pwa: async ({ baseURL }, use) => {
 		if (!baseURL) throw new Error("baseURL (the built server) is required");
-		const server = await startPwaServer({
-			upstream: baseURL,
-			svelteBuild: SVELTE_BUILD,
-		});
+		const server = await startPwaServer({ upstream: baseURL });
 		await use(server);
 		await server.close();
 	},

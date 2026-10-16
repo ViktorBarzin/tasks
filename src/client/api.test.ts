@@ -135,7 +135,7 @@ describe("request shape (the frozen JSON contract)", () => {
 		expect(headers.get(CLIENT_ID_HEADER)).toBe(clientId());
 	});
 
-	it("marks every request as this build (X-Tasks-Client-Id), so the server answers 401, not the Svelte build's redirect", async () => {
+	it("sends this tab's id (X-Tasks-Client-Id) on every request", async () => {
 		fetchMock.mockResolvedValue(
 			jsonResponse({ username: "v", connected: true }),
 		);

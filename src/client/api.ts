@@ -63,10 +63,7 @@ let id: string | null = null;
 /**
  * This tab's id, sent on every /api request. On POST /api/ops it tells the
  * realtime poke those ops cause apart from another device's
- * (src/client/realtime.ts). On every request it marks the caller as this
- * build: the server redirects a same-origin request without it (the Svelte
- * build, during the cutover) instead of answering 401
- * (src/server/http/api.server.ts, legacyClientRedirect).
+ * (src/client/realtime.ts).
  */
 export function clientId(): string {
 	id ??= crypto.randomUUID();

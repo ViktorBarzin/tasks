@@ -1,8 +1,7 @@
 /**
- * Session expiry and re-login through a LIVE service worker: the OIDC
- * equivalent of the Svelte build's e2e-sw/relogin.spec.ts, and the acceptance
+ * Session expiry and re-login through a LIVE service worker: the acceptance
  * criteria from tasks ADR-0003 (re-login escapes the app shell) and ADR-0004
- * (sign-in in a popup), now detected by a 401 instead of an opaqueredirect.
+ * (sign-in in a popup), detected by a 401.
  *
  * The service worker precaches the app shell and serves it for every in-scope
  * navigation (§H, the offline cold start). Sign-in must still reach the

@@ -14,8 +14,7 @@ import { defineConfig, devices } from "@playwright/test";
  *    (`hover: hover`, `pointer: fine`);
  *  - pwa: `sw/` specs with a LIVE service worker, served through the stub
  *    origin in e2e/fixtures/pwa-server.ts (page.route cannot stub requests a
- *    service worker makes). The cutover spec also serves the Svelte build
- *    from ../frontend/build (see e2e/global-setup.ts).
+ *    service worker makes).
  * The gesture specs stub /api with page.route and block service workers for
  * determinism. Real iOS Safari checks go through `homelab ios`, not an
  * emulated viewport.
@@ -48,7 +47,6 @@ export default defineConfig({
 	retries: 0,
 	reporter: "list",
 	timeout: 30_000,
-	globalSetup: "./e2e/global-setup.ts",
 	use: {
 		baseURL: `http://127.0.0.1:${port}`,
 		trace: "retain-on-failure",

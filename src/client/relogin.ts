@@ -49,8 +49,7 @@ const defaults = (): ReloginDeps => ({
 			await fetch("/api/me", {
 				cache: "no-store",
 				credentials: "same-origin",
-				// Marks this build, so the answer is a 401, not the redirect
-				// meant for the Svelte build (src/client/api.ts, clientId).
+				// This tab's id, as on every /api request (src/client/api.ts).
 				headers: { [CLIENT_ID_HEADER]: clientId() },
 			});
 			return true;

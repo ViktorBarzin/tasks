@@ -1,6 +1,6 @@
 /**
- * Identity tables, all new and additive (ADR-0001, Data / Migrations): the
- * Python image ignores them, so it stays a working rollback target.
+ * Identity tables, added next to the two Alembic-created tables (ADR-0001,
+ * Data / Migrations).
  *
  * - auth_user, auth_session, auth_account, auth_verification: Better Auth's
  *   own tables (Drizzle adapter). Property names are the field names Better
@@ -103,7 +103,7 @@ export const authVerification = pgTable(
  * the Authentik username the forward-auth header carried. A user's first
  * sign-in maps their `sub` to that key through `preferred_username`, once;
  * later username changes do not move their data. Existing primary keys are
- * never rewritten while the Python image is a rollback target.
+ * never rewritten.
  */
 export const identityLinks = pgTable("identity_links", {
 	sub: varchar("sub", { length: 255 }).primaryKey(),

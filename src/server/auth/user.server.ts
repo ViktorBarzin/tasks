@@ -1,7 +1,6 @@
 /**
- * Who is calling. Replaces backend/tasks_api/auth.py, which trusted
- * Authentik's forward-auth header `X-Authentik-Username`. The TypeScript build
- * never reads that header: both ingresses strip it (ADR-0001, Pilot / Cutover).
+ * Who is calling. The app never reads Authentik's forward-auth header
+ * `X-Authentik-Username`, and the ingress strips it (ADR-0001).
  *
  * Resolution order for a request:
  * 1. `Authorization: Bearer` present: an Authentik JWT (CLIs, agents;
