@@ -175,9 +175,52 @@ bun run start        # serve .output on $HOST:$PORT
 | `TASKS_FERNET_KEY` | encrypts Nextcloud app passwords (same key as the Python app) |
 | `TASKS_CALDAV_BASE_URL` | Nextcloud DAV root |
 | `TASKS_LOCAL_TZ` | all-day recurrence zone, default `Europe/Sofia` |
-| `TASKS_ACCOUNT_KEY_CLAIM` | `preferred_username` (default) or `sub` after the cutover mapping |
-| `PUBLIC_ORIGINS` | exact origins for the CSRF check |
-| `DEV_USER` | dev and test identity; ignored when `NODE_ENV=production` |
+| `PUBLIC_ORIGINS` | exact public origins: Better Auth's baseURL (the first) and trustedOrigins, and the CSRF allow-list |
+| `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | the Authentik provider; sign-in is off when any is unset |
+| `BETTER_AUTH_SECRET` | signs session cookies and OAuth state (Vault KV via ESO) |
+| `API_TOKEN_AUDIENCES` | client IDs accepted as `aud` on bearer JWTs; default `OIDC_CLIENT_ID` |
+| `AUTHENTIK_API_URL` | Authentik base URL for membership checks and approvals |
+| `AUTHENTIK_READER_TOKEN` | service account that may view users and groups |
+| `AUTHENTIK_APPROVER_TOKEN` | token that may only add users to Tasks Users |
+| `AUTHENTIK_USERS_GROUP_PK` | Tasks Users' UUID; looked up by name when unset |
+| `TASKS_USERS_GROUP`, `TASKS_ADMINS_GROUP`, `TASKS_AGENTS_GROUP` | group names, default `Tasks Users`, `Tasks Admins`, `Tasks Agents` |
+| `AUTHENTIK_GUEST_USERNAME` | the anonymous auto-login user, default `guest` |
+| `DEV_USER` | dev and test identity (an admin member); ignored when `NODE_ENV=production` |
+
+Every secret above also reads from a `*_FILE` path.
+
+## Identity
+
+`src/server/auth/` (ADR-0001, Identity and access):
+
+- Browser sign-in is Better Auth's generic OAuth against Authentik, through
+  `/api/auth/start?return=<path>` and `/api/auth/finish`. `/api/signin`
+  (the popup target of tasks ADR-0004) starts it when there is no session.
+  A guest from Authentik's public auto-login is sent back with `prompt=login`.
+- Users are keyed on the OIDC `sub`. `identity_links` maps a subject to the
+  `authentik_username` value the existing rows use, through
+  `preferred_username`, once (`AuthUser.accountKey`).
+- Membership in Tasks Users, Tasks Admins or Tasks Agents comes from the
+  id_token's `groups` at sign-in and is re-asked from Authentik when older
+  than 15 minutes (`member_checks`). A non-member gets 403 `access_pending`
+  from `/api` and the `/pending` page; Tasks Admins approve at
+  `/admin/requests`.
+- Bearer JWTs (CLIs, agents) are verified in `tokens.server.ts`: RS256, the
+  provider's issuer, `aud` in `API_TOKEN_AUDIENCES`, `exp`.
+- The CSRF origin check in `src/start.ts` covers every state-changing request
+  and `GET /api/events`.
+- Tests use the mock Authentik in `src/server/auth/testing/`; the HTTP tests
+  need a built server and `TEST_DATABASE_URL`.
+
+## Realtime
+
+`src/server/realtime/` (ADR-0001, Realtime contract): `publish(accountKey)`
+(or `pokeUser`) sends `NOTIFY tasks_ops` with the account key and an event,
+never task data. Each pod's listener holds one LISTEN connection, checks it
+every 30 s with a ping NOTIFY that must come back on it, reconnects, and
+sends `resync` to every stream after a reconnect. `GET /api/events` streams
+`poke` and `resync` with a `: ping` comment every 25 s; the route lifts Bun's
+10-second idle timeout for the stream.
 | `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
 | `HOST`, `PORT` | listen address; the image uses `0.0.0.0:3000` |
 

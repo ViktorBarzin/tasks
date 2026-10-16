@@ -1,12 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { handleApi } from "#/server/http/api.server";
+import { signInRedirect } from "#/server/auth/session.server";
+import { resolveUser } from "#/server/auth/user.server";
+import { ApiError, toErrorResponse } from "#/server/http/errors.server";
+import { SIGNIN_PATH } from "#/shared/contract";
 
 /**
- * The landing page of the sign-in popup (tasks ADR-0004). Reaching it proves
- * a session, so it only closes itself; the opener's /api/me poll is the
- * backstop for browsers that refuse a scripted close. Never cached, so a
- * walled popup cannot fake it. Same bytes as backend/tasks_api/routers/signin.py.
+ * The landing page of the sign-in popup (tasks ADR-0004). With a session it
+ * only closes itself; the opener's /api/me poll is the backstop for browsers
+ * that refuse a scripted close. Without one it starts the OAuth flow, which
+ * comes back here (forward-auth used to do that bounce). A signed-in person
+ * who is still waiting for approval also gets the page: the opener's
+ * /api/me then answers 403 `access_pending`. Never cached, so a walled popup
+ * cannot fake it. Same bytes as backend/tasks_api/routers/signin.py.
  */
 const PAGE = `<!doctype html>
 <meta charset="utf-8">
@@ -29,17 +35,23 @@ const PAGE = `<!doctype html>
 export const Route = createFileRoute("/api/signin")({
 	server: {
 		handlers: {
-			GET: ({ request }) =>
-				handleApi(
-					request,
-					async () =>
-						new Response(PAGE, {
+			GET: async ({ request }) => {
+				try {
+					if (await resolveUser(request)) {
+						return new Response(PAGE, {
 							headers: {
 								"content-type": "text/html; charset=utf-8",
 								"cache-control": "no-store",
 							},
-						}),
-				),
+						});
+					}
+					const start = signInRedirect(SIGNIN_PATH);
+					if (start) return start;
+					throw new ApiError(401, "unauthorized", "not signed in");
+				} catch (err) {
+					return toErrorResponse(err, request);
+				}
+			},
 		},
 	},
 });
