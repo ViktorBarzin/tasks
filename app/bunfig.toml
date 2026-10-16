@@ -1,0 +1,7 @@
+[install]
+# ADR-0001: wait 3 days before taking a new npm release (seconds).
+minimumReleaseAge = 259200
+
+[test]
+root = "src"
+preload = ["./src/test/happydom.ts", "./src/test/setup.ts"]
