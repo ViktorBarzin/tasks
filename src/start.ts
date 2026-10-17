@@ -1,16 +1,27 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
+import { getLogger } from "@viktorbarzin/log";
+import { createHandlerLabeler, observeRequest } from "@viktorbarzin/metrics";
+import { withFrameDenial } from "@viktorbarzin/runtime";
 
-import { csrfRejection } from "#/server/auth/csrf.server";
-import { withFrameDenial } from "#/server/http/headers.server";
-import { extendIdleTimeout, trackRequest } from "#/server/lifecycle.server";
-import { getLogger } from "#/server/logging.server";
-import {
-	handlerLabel,
-	httpRequestDuration,
-	httpRequestsTotal,
-} from "#/server/metrics.server";
+import { appAuth } from "#/server/auth/auth.server";
 
 const accessLog = getLogger("tasks.http");
+
+/**
+ * The `handler` label: known routes by name, everything else folded into a
+ * few buckets so the label set stays small.
+ */
+const label = createHandlerLabeler({
+	known: [
+		"/api/me",
+		"/api/onboard",
+		"/api/sync",
+		"/api/ops",
+		"/api/signin",
+		"/api/events",
+		"/healthz",
+	],
+});
 
 /**
  * Every request through the Start handler: Bun's idle timeout raised from
@@ -20,43 +31,24 @@ const accessLog = getLogger("tasks.http");
  * and the imports only they use from the client bundle.
  */
 const observe = createMiddleware().server(async ({ request, next }) => {
-	extendIdleTimeout(request);
-	const done = trackRequest();
-	const started = performance.now();
-	const { pathname } = new URL(request.url);
-	const handler = handlerLabel(pathname);
+	const done = observeRequest(request, { label, accessLog });
 	let status = 500;
 	try {
 		const result = await next();
 		status = result.response.status;
 		return result;
 	} finally {
-		done();
-		const seconds = (performance.now() - started) / 1000;
-		httpRequestsTotal.inc({
-			method: request.method,
-			handler,
-			status: `${Math.floor(status / 100)}xx`,
-		});
-		httpRequestDuration.observe({ method: request.method, handler }, seconds);
-		if (pathname.startsWith("/api/")) {
-			accessLog.info("request", {
-				method: request.method,
-				path: pathname,
-				status,
-				duration_ms: Math.round(seconds * 1000),
-			});
-		}
+		done(status);
 	}
 });
 
 /**
- * The explicit CSRF check (ADR-0001, Browser security; src/server/auth/csrf.server.ts):
+ * The explicit CSRF check (ADR-0001, Browser security; @viktorbarzin/auth):
  * state-changing requests and the SSE stream must come from a public origin.
  * Covers server functions, server routes and /api/events alike.
  */
 const csrf = createMiddleware().server(async ({ request, next }) => {
-	const rejection = csrfRejection(request);
+	const rejection = appAuth.csrfRejection(request);
 	if (rejection) return rejection;
 	return next();
 });
@@ -65,7 +57,11 @@ Object.defineProperty(csrf, Symbol.for("tanstack-start:csrf-middleware"), {
 	value: true,
 });
 
-/** Anti-framing headers on every response (src/server/http/headers.server.ts). */
+/**
+ * Anti-framing headers on every response (@viktorbarzin/runtime). The
+ * ingress's CSP middleware replaces a Content-Security-Policy the app sets,
+ * so the deployed ingress also sends `frame-ancestors 'none'` (see AGENTS.md).
+ */
 const frameDeny = createMiddleware().server(async ({ next }) => {
 	const result = await next();
 	return { ...result, response: withFrameDenial(result.response) };

@@ -1,11 +1,8 @@
 /**
  * Schema migrations, run once per deploy by the migrate entrypoint
- * (src/entrypoints/migrate.ts) as an init container or Job.
- *
- * drizzle-orm's migrator takes no lock of its own, so this module holds a
- * session-level `pg_advisory_lock` around it (ADR-0001, Data / Migrations).
- * The client passed in must have a pool of exactly one connection: the lock,
- * the migrator's transaction and the unlock then share one session.
+ * (src/entrypoints/migrate.ts) as an init container. @viktorbarzin/pg runs
+ * drizzle's migrator under a session `pg_advisory_lock`; this module adds the
+ * tasks-only baseline step that runs under the same lock.
  *
  * Baseline: drizzle/0000_baseline.sql was pulled from the schema Alembic
  * created. On a database that Alembic manages (public.alembic_version exists)
@@ -13,25 +10,15 @@
  * without running it, using the same hash and timestamp drizzle-orm's
  * migrator would write. A fresh database runs the baseline normally.
  */
+import { getLogger } from "@viktorbarzin/log";
+import { runMigrations } from "@viktorbarzin/pg";
 import type { SQL } from "bun";
-import { migrate } from "drizzle-orm/bun-sql/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-
-import { getLogger } from "../logging.server";
-import { createDb } from "./client.server";
 
 const log = getLogger("tasks.migrate");
 
 /** Fixed advisory-lock key for this app's migrations: the bytes of "tasksmig". */
 export const MIGRATION_LOCK_KEY = 0x7461736b736d6967n;
-
-export const MIGRATIONS_SCHEMA = "drizzle";
-export const MIGRATIONS_TABLE = "__drizzle_migrations";
-
-export interface MigrateResult {
-	baselineMarked: boolean;
-	applied: number;
-}
 
 async function appliedCount(client: SQL): Promise<number> {
 	const [row] = await client`
@@ -73,30 +60,20 @@ export async function markBaselineIfLegacy(
 	return true;
 }
 
-export async function runMigrations(
-	client: SQL,
-	migrationsFolder: string,
-): Promise<MigrateResult> {
-	log.info("waiting for migration lock", { lock_key: MIGRATION_LOCK_KEY });
-	await client`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`;
-	try {
-		const baselineMarked = await markBaselineIfLegacy(client, migrationsFolder);
-		if (baselineMarked) {
+/** The `beforeMigrate` step for @viktorbarzin/pg. */
+export function baselineStep(migrationsFolder: string) {
+	return async (client: SQL): Promise<void> => {
+		if (await markBaselineIfLegacy(client, migrationsFolder))
 			log.info("recorded the pulled baseline as applied on the Alembic schema");
-		}
-		const before = await appliedCount(client);
-		await migrate(createDb(client), {
-			migrationsFolder,
-			migrationsSchema: MIGRATIONS_SCHEMA,
-			migrationsTable: MIGRATIONS_TABLE,
-		});
-		const applied = (await appliedCount(client)) - before;
-		log.info("migrations complete", {
-			applied,
-			baseline_marked: baselineMarked,
-		});
-		return { baselineMarked, applied };
-	} finally {
-		await client`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`;
-	}
+	};
+}
+
+/** Migrate with the tasks lock key and baseline step. The client must have max 1. */
+export function migrate(client: SQL, migrationsFolder: string) {
+	return runMigrations(client, {
+		migrationsFolder,
+		lockKey: MIGRATION_LOCK_KEY,
+		beforeMigrate: baselineStep(migrationsFolder),
+		logger: log,
+	});
 }

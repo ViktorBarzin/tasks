@@ -1,6 +1,7 @@
 /**
- * Drizzle schema for the two tables the retired Python build created with
- * Alembic. It must match the live database exactly: the baseline in
+ * The app's Drizzle schema: the two tables the retired Python build created
+ * with Alembic, the identity tables from @viktorbarzin/auth, and the identity
+ * bridge. It must match the live database exactly: the baseline in
  * drizzle/0000_baseline.sql was pulled from it, and `bun run db:generate`
  * reports "No schema changes" while the two agree.
  */
@@ -11,6 +12,8 @@ import {
 	timestamp,
 	varchar,
 } from "drizzle-orm/pg-core";
+
+export * from "@viktorbarzin/auth/schema";
 
 /**
  * `bytea`, written by hand because drizzle-kit cannot introspect it.
@@ -33,7 +36,7 @@ export const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
 
 /** A household user's link between their identity and their Nextcloud account (tasks ADR-0002). */
 export const connectedAccounts = pgTable("connected_accounts", {
-	/** The account key from src/server/auth/user.server.ts (`AuthUser.accountKey`). */
+	/** The account key from src/server/auth/identity.server.ts (`TasksUser.accountKey`). */
 	authentikUsername: varchar("authentik_username", {
 		length: 255,
 	}).primaryKey(),
@@ -68,6 +71,24 @@ export const appliedOps = pgTable(
 		}),
 	],
 );
+
+/**
+ * The identity bridge. Rows in connected_accounts and applied_ops are keyed by
+ * the Authentik username the forward-auth header carried. A user's first
+ * sign-in maps their `sub` to that key through `preferred_username`, once;
+ * later username changes do not move their data. Existing primary keys are
+ * never rewritten.
+ */
+export const identityLinks = pgTable("identity_links", {
+	sub: varchar("sub", { length: 255 }).primaryKey(),
+	/** The value stored in the `authentik_username` columns. */
+	accountKey: varchar("account_key", { length: 255 }).notNull().unique(),
+	/** `preferred_username` when the link was made (audit). */
+	linkedUsername: varchar("linked_username", { length: 255 }).notNull(),
+	linkedAt: timestamp("linked_at", { withTimezone: true, mode: "date" })
+		.defaultNow()
+		.notNull(),
+});
 
 export type ConnectedAccount = typeof connectedAccounts.$inferSelect;
 export type NewConnectedAccount = typeof connectedAccounts.$inferInsert;

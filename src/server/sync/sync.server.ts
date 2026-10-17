@@ -10,6 +10,8 @@
  * (`deleted: true`, name "", order null, sort_mode null), sorted by id.
  * Task tombstones carry the true UID from the cursor's href index.
  */
+
+import { getLogger } from "@viktorbarzin/log";
 import type { SyncResponse, Task, TaskList } from "#/shared/contract";
 import {
 	CalDAVEngine,
@@ -19,7 +21,6 @@ import {
 	type ObjectState,
 } from "../caldav/engine.server";
 import { MapperError, parseTask } from "../caldav/ics.server";
-import { getLogger } from "../logging.server";
 import {
 	decodeCursor,
 	decodeHrefIndex,

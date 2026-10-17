@@ -16,8 +16,10 @@
  *   account key); a unique-violation on insert means another request journaled
  *   it first, and the result is `duplicate`.
  * After a batch that applied at least one op, poke the user's other devices
- * (src/server/realtime/notify.server.ts).
+ * (src/server/realtime/realtime.server.ts).
  */
+
+import { getLogger } from "@viktorbarzin/log";
 import {
 	MUTABLE_TASK_FIELDS,
 	OP_KINDS,
@@ -43,9 +45,9 @@ import {
 import * as ics from "../caldav/ics.server";
 import { MapperError, type OpTaskFields } from "../caldav/ics.server";
 import { RecurrenceError } from "../caldav/recurrence.server";
-import { getLogger } from "../logging.server";
-import { opsAppliedTotal } from "../metrics.server";
-import { pokeUser } from "../realtime/notify.server";
+
+import { appMetrics } from "../metrics.server";
+import { pokeUser } from "../realtime/realtime.server";
 import type { OpJournal } from "./journal.server";
 import {
 	IsoFormatError,
@@ -523,7 +525,7 @@ export async function applyOps(
 		error: string | null = null,
 	) => {
 		results.push({ op_id: op.op_id, status, error });
-		opsAppliedTotal.inc({
+		appMetrics().opsAppliedTotal.inc({
 			kind: VALID_KINDS.has(op.kind) ? op.kind : "unknown",
 			status,
 		});

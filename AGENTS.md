@@ -99,13 +99,13 @@ src/
                      replica-contract.ts (frozen IndexedDB layout)
   server/            server-only, every file *.server.ts
     account/         /api/me, /api/onboard, per-user CalDAV engine
-    auth/            identity: session (Better Auth), bearer tokens, CSRF
+    auth/            identity: @viktorbarzin/auth wiring, identity bridge, access pages
     caldav/          engine (DAV client), ics (VTODO mapping), recurrence
     crypto/          Fernet, byte-compatible with Python's cryptography
     db/              Drizzle schema, pool, migrations, Connected Accounts
-    http/            error envelope, /api handler plumbing
+    http/            error envelope (CalDAV mapping), /api handler plumbing
     ops/  sync/      POST /api/ops, GET /api/sync, sync cursor
-    realtime/        NOTIFY listener, SSE hub, notify helpers
+    realtime/        @viktorbarzin/realtime wiring: the poke event and channel
   entrypoints/       bundled with `bun build --target bun` (migrate)
   start.ts           global request middleware (idle timeout, metrics, access
                      log, anti-framing headers, CSRF)
@@ -245,7 +245,7 @@ bun run start        # serve .output on $HOST:$PORT
 | `AUTHENTIK_READER_TOKEN` | service account that may view users and groups |
 | `AUTHENTIK_APPROVER_TOKEN` | token that may only add users to Tasks Users |
 | `AUTHENTIK_USERS_GROUP_ID` | Tasks Users' UUID; looked up by name when unset |
-| `TASKS_USERS_GROUP`, `TASKS_ADMINS_GROUP`, `TASKS_AGENTS_GROUP` | group names, default `Tasks Users`, `Tasks Admins`, `Tasks Agents` |
+| `AUTH_USERS_GROUP`, `AUTH_ADMINS_GROUP`, `AUTH_AGENTS_GROUP` | group names, default `Tasks Users`, `Tasks Admins`, `Tasks Agents`; the Terraform module sets the first two to the defaults |
 | `AUTHENTIK_GUEST_USERNAME` | the anonymous auto-login user, default `guest` |
 | `DEV_USER` | dev and test identity (an admin member); ignored when `NODE_ENV=production` |
 | `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
@@ -263,8 +263,8 @@ never routes.
 
 ## Process lifecycle
 
-`src/server/nitro-plugin.server.ts` runs once at boot
-(`src/server/lifecycle.server.ts`):
+`src/server/nitro-plugin.server.ts` runs once at boot, on
+`@viktorbarzin/runtime` and `@viktorbarzin/metrics`:
 
 - Bun closes a request that is idle for 10 s by default. `src/start.ts`
   raises it to 120 s per request (the engine allows 30 s per CalDAV call);
@@ -282,7 +282,7 @@ Deployment need, and why:
 
 - Keep the default `rate-limit` middleware on the ingress. It runs the real-ip
   plugin, which sets `X-Real-Ip`; Better Auth's rate limiter keys on that
-  header (`CLIENT_IP_HEADER` in `auth.server.ts`).
+  header (`clientIpHeader` in `@viktorbarzin/auth`, default `x-real-ip`).
 - Set `custom_content_security_policy = "frame-ancestors 'none'"` on the
   ingress. The default `csp-headers` middleware replaces the app's own CSP
   with one that lets any `*.viktorbarzin.me` page frame the app.
@@ -308,7 +308,8 @@ Pinned by tests:
 
 ## Identity
 
-`src/server/auth/` (ADR-0001, Identity and access):
+`@viktorbarzin/auth`, configured in `src/server/config.server.ts` and
+`src/server/auth/auth.server.ts` (ADR-0001, Identity and access):
 
 - Browser sign-in is Better Auth's generic OAuth against Authentik, through
   `/api/auth/start?return=<path>` and `/api/auth/finish`. `/api/signin`
@@ -316,24 +317,28 @@ Pinned by tests:
   A guest from Authentik's public auto-login is sent back with `prompt=login`.
 - Users are keyed on the OIDC `sub`. `identity_links` maps a subject to the
   `authentik_username` value the existing rows use, through
-  `preferred_username`, once (`AuthUser.accountKey`).
+  `preferred_username`, once (`TasksUser.accountKey`, added through the
+  package's `enrich` hook).
 - Membership in Tasks Users, Tasks Admins or Tasks Agents comes from the
   id_token's `groups` at sign-in and is re-asked from Authentik when older
   than 15 minutes (`member_checks`). A non-member gets 403 `access_pending`
   from `/api` and the `/pending` page; Tasks Admins approve at
   `/admin/requests`.
-- Bearer JWTs (CLIs, agents) are verified in `tokens.server.ts`: RS256, the
-  provider's issuer, `aud` in `API_TOKEN_AUDIENCES`, `exp`.
+- Bearer JWTs (CLIs, agents) are verified by `@viktorbarzin/oidc-token`:
+  RS256, the provider's issuer, `aud` in `API_TOKEN_AUDIENCES`, `exp`.
 - The CSRF origin check in `src/start.ts` covers every state-changing request
   and `GET /api/events`.
-- Tests use the mock Authentik in `src/server/auth/testing/`; the HTTP tests
-  need a built server and `TEST_DATABASE_URL`.
+- Session cookies are `__Host-tasks.*` and the identity metrics keep their
+  `tasks_` prefix; both come from the config, not the package defaults.
+- Tests use the mock Authentik from `@viktorbarzin/auth/testing`, wrapped in
+  `src/test/built-server.ts`; the HTTP tests need a built server and
+  `TEST_DATABASE_URL`.
 
 ## Realtime
 
-`src/server/realtime/` (ADR-0001, Realtime contract): `publish(accountKey)`
-(or `pokeUser`) sends `NOTIFY tasks_ops` with the account key and an event,
-never task data. Each pod's listener holds one LISTEN connection, checks it
+`@viktorbarzin/realtime`, wired in `src/server/realtime/realtime.server.ts`
+(ADR-0001, Realtime contract): `pokeUser(accountKey)` sends `NOTIFY tasks_ops`
+with the account key and a `poke` event, never task data. Each pod's listener holds one LISTEN connection, checks it
 every 30 s with a ping NOTIFY that must come back on it, reconnects, and
 sends `resync` to every stream after a reconnect. `GET /api/events` streams
 `poke` and `resync` with a `: ping` comment every 25 s; the route lifts Bun's

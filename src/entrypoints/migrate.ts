@@ -1,6 +1,6 @@
 /**
  * Migrate entrypoint, bundled with `bun build --target bun` into
- * .output/entrypoints/migrate.js and run as an init container or Job:
+ * .output/entrypoints/migrate.js and run as the Deployment's init container:
  *
  *   bun .output/entrypoints/migrate.js
  *
@@ -8,21 +8,13 @@
  * (defaults to ./drizzle relative to the working directory).
  */
 import { resolve } from "node:path";
+import { getLogger } from "@viktorbarzin/log";
+import { runMigrateCli } from "@viktorbarzin/pg";
 
-import { createSqlClient } from "#/server/db/client.server";
-import { runMigrations } from "#/server/db/migrate.server";
-import { getLogger } from "#/server/logging.server";
+import { baselineStep, MIGRATION_LOCK_KEY } from "#/server/db/migrate.server";
 
-const log = getLogger("tasks.migrate");
-const folder = resolve(process.env.MIGRATIONS_DIR ?? "drizzle");
-
-// One connection, so the advisory lock and the migrator share a session.
-const client = createSqlClient({ max: 1 });
-try {
-	await runMigrations(client, folder);
-} catch (err) {
-	log.exception("migration failed", err, { migrations_dir: folder });
-	process.exitCode = 1;
-} finally {
-	await client.close();
-}
+process.exitCode = await runMigrateCli({
+	lockKey: MIGRATION_LOCK_KEY,
+	beforeMigrate: baselineStep(resolve(process.env.MIGRATIONS_DIR || "drizzle")),
+	logger: getLogger("tasks.migrate"),
+});

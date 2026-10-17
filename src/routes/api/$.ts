@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-
+import { ApiError } from "@viktorbarzin/runtime";
 import { handleApi } from "#/server/http/api.server";
-import { ApiError } from "#/server/http/errors.server";
 
 /** Unknown /api paths: 401 without an identity, else a 404 envelope (as FastAPI answered). */
 async function notFound({ request }: { request: Request }): Promise<Response> {

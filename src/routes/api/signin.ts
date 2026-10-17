@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { safeReturnPath } from "#/server/auth/auth.server";
-import { signInRedirect } from "#/server/auth/session.server";
-import { resolveUser } from "#/server/auth/user.server";
-import { ApiError, toErrorResponse } from "#/server/http/errors.server";
+import { safeReturnPath } from "@viktorbarzin/auth";
+import { ApiError } from "@viktorbarzin/runtime";
+
+import { appAuth } from "#/server/auth/auth.server";
+import { toErrorResponse } from "#/server/http/errors.server";
 import { SIGNIN_PATH } from "#/shared/contract";
 
 /**
@@ -47,7 +48,7 @@ export const Route = createFileRoute("/api/signin")({
 					const returnTo = new URL(request.url).searchParams.get(
 						RETURN_TO_PARAM,
 					);
-					if (await resolveUser(request)) {
+					if (await appAuth.resolveUser(request)) {
 						if (returnTo !== null) {
 							return new Response(null, {
 								status: 302,
@@ -64,7 +65,7 @@ export const Route = createFileRoute("/api/signin")({
 							},
 						});
 					}
-					const start = signInRedirect(
+					const start = appAuth.signInRedirect(
 						returnTo === null
 							? SIGNIN_PATH
 							: `${SIGNIN_PATH}?${new URLSearchParams({ [RETURN_TO_PARAM]: safeReturnPath(returnTo) })}`,

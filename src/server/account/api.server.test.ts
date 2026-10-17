@@ -36,7 +36,7 @@ import {
 	type TestDatabase,
 	testDatabaseUrl,
 } from "#/test/postgres.server";
-import { closeDb } from "../db/client.server";
+import { pool } from "../db/client.server";
 import { setEngineFactoryForTests } from "./account.server";
 
 type Handler = (ctx: { request: Request }) => Promise<Response>;
@@ -130,7 +130,7 @@ describe.skipIf(!testDatabaseUrl)("/api routes", () => {
 
 	afterAll(async () => {
 		setEngineFactoryForTests(undefined);
-		await closeDb();
+		await pool.close();
 		await pg?.drop();
 		for (const [key, value] of Object.entries(savedEnv)) {
 			if (value === undefined) delete process.env[key];

@@ -11,13 +11,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createSqlClient } from "@viktorbarzin/pg";
 import { SQL } from "bun";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-
+import { pgSettings } from "../config.server";
 import python from "../crypto/fixtures/fernet-python.json";
 import { accountPassword, getAccount, upsertAccount } from "./accounts.server";
-import { createDb, createSqlClient } from "./client.server";
-import { runMigrations } from "./migrate.server";
+import { createDb } from "./client.server";
+import { migrate } from "./migrate.server";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const migrationsFolder = resolve(import.meta.dir, "../../../drizzle");
@@ -63,6 +64,10 @@ function restoreEnv(name: string, previous: string | undefined): void {
 	else process.env[name] = previous;
 }
 
+function connect(url: string, max: number): SQL {
+	return createSqlClient({ url, passwordFile: null }, { max });
+}
+
 function withDatabaseUrl<T>(url: string, fn: () => T): T {
 	const previous = process.env.DATABASE_URL;
 	process.env.DATABASE_URL = url;
@@ -89,33 +94,30 @@ describe.skipIf(!adminUrl)("migrations", () => {
 		await setup.unsafe(ALEMBIC_SCHEMA);
 		await setup.close();
 
-		const client = withDatabaseUrl(url, () => createSqlClient({ max: 1 }));
-		const first = await runMigrations(client, migrationsFolder);
-		const second = await runMigrations(client, migrationsFolder);
+		const client = connect(url, 1);
+		const first = await migrate(client, migrationsFolder);
+		const second = await migrate(client, migrationsFolder);
 		const rows = await client`select hash from drizzle.__drizzle_migrations`;
 		const [alembic] = await client`select version_num from alembic_version`;
 		await client.close();
 
 		// The baseline is recorded, not run; later (additive) migrations run.
-		expect(first).toEqual({
-			baselineMarked: true,
-			applied: MIGRATION_COUNT - 1,
-		});
-		expect(second).toEqual({ baselineMarked: false, applied: 0 });
+		expect(first).toEqual({ applied: MIGRATION_COUNT - 1 });
+		expect(second).toEqual({ applied: 0 });
 		expect(rows).toHaveLength(MIGRATION_COUNT);
 		expect(alembic).toEqual({ version_num: "0002" });
 	});
 
 	test("on an empty database, runs every migration", async () => {
 		const url = await freshDatabase();
-		const client = withDatabaseUrl(url, () => createSqlClient({ max: 1 }));
-		const result = await runMigrations(client, migrationsFolder);
+		const client = connect(url, 1);
+		const result = await migrate(client, migrationsFolder);
 		const tables = await client`
 			select table_name from information_schema.tables
 			where table_schema = 'public' order by table_name`;
 		await client.close();
 
-		expect(result).toEqual({ baselineMarked: false, applied: MIGRATION_COUNT });
+		expect(result).toEqual({ applied: MIGRATION_COUNT });
 		const names = tables.map((t: { table_name: string }) => t.table_name);
 		expect(names).toContain("applied_ops");
 		expect(names).toContain("connected_accounts");
@@ -123,11 +125,11 @@ describe.skipIf(!adminUrl)("migrations", () => {
 
 	test("two migrators started together apply each migration once", async () => {
 		const url = await freshDatabase();
-		const a = withDatabaseUrl(url, () => createSqlClient({ max: 1 }));
-		const b = withDatabaseUrl(url, () => createSqlClient({ max: 1 }));
+		const a = connect(url, 1);
+		const b = connect(url, 1);
 		const results = await Promise.all([
-			runMigrations(a, migrationsFolder),
-			runMigrations(b, migrationsFolder),
+			migrate(a, migrationsFolder),
+			migrate(b, migrationsFolder),
 		]);
 		const rows = await a`select hash from drizzle.__drizzle_migrations`;
 		await Promise.all([a.close(), b.close()]);
@@ -140,8 +142,8 @@ describe.skipIf(!adminUrl)("migrations", () => {
 describe.skipIf(!adminUrl)("connected accounts", () => {
 	test("reads a row the Python backend wrote, and upserts in place", async () => {
 		const url = await freshDatabase();
-		const client = withDatabaseUrl(url, () => createSqlClient({ max: 2 }));
-		await runMigrations(client, migrationsFolder);
+		const client = connect(url, 2);
+		await migrate(client, migrationsFolder);
 		// What SQLAlchemy stored: the Fernet token's ASCII bytes in bytea.
 		await client`
 			insert into connected_accounts (authentik_username, nc_username, enc_app_password)
@@ -187,7 +189,7 @@ describe.skipIf(!adminUrl)("connected accounts", () => {
 		process.env.DATABASE_PASSWORD_FILE = file;
 		try {
 			const client = withDatabaseUrl(url.toString(), () =>
-				createSqlClient({ max: 1 }),
+				createSqlClient(pgSettings(), { max: 1 }),
 			);
 			const [row] = await client`select 1 as one`;
 			await client.close();

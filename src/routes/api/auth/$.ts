@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { handleAuthRequest } from "#/server/auth/session.server";
+import { appAuth } from "#/server/auth/auth.server";
 import { toErrorResponse } from "#/server/http/errors.server";
 
-/** Better Auth's endpoints: sign-in, OAuth callback, sign-out, session. */
+/** Better Auth's endpoints: OAuth callback, sign-out, session, error page. */
 async function handle({ request }: { request: Request }): Promise<Response> {
 	try {
-		return await handleAuthRequest(request);
+		return await appAuth.handleAuthRequest(request);
 	} catch (err) {
 		return toErrorResponse(err, request);
 	}

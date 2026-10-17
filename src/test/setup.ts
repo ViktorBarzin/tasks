@@ -6,7 +6,7 @@ import { afterEach, expect } from "bun:test";
 import * as matchers from "@testing-library/jest-dom/matchers";
 import { cleanup } from "@testing-library/react";
 
-import { setLogLevel } from "#/server/logging.server";
+import { setLogLevel } from "@viktorbarzin/log";
 
 expect.extend(matchers);
 

@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { noContent, readJson } from "@viktorbarzin/runtime";
 import { onboard } from "#/server/account/account.server";
 import { getDb } from "#/server/db/client.server";
-import { handleApi, noContent, readJson } from "#/server/http/api.server";
+import { handleApi } from "#/server/http/api.server";
 import { onboardRequestSchema } from "#/shared/contract";
 
 export const Route = createFileRoute("/api/onboard")({

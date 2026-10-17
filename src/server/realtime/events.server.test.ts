@@ -4,25 +4,26 @@
  * to end, from a NOTIFY on tasks_ops to an SSE frame.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { TestDatabase } from "@viktorbarzin/pg/testing";
 import { SQL } from "bun";
 
 import {
 	type BuiltServer,
 	builtServerExists,
 	startBuiltServer,
-	TestDatabases,
-} from "../auth/testing/built-server";
+	testDatabase,
+} from "#/test/built-server";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const ready = Boolean(adminUrl) && builtServerExists();
-let dbs: TestDatabases;
+let database: TestDatabase;
 let sql: SQL;
 let server: BuiltServer;
 
 beforeAll(async () => {
 	if (!ready) return;
-	dbs = new TestDatabases(adminUrl as string);
-	const url = await dbs.create();
+	database = await testDatabase(adminUrl as string, { migrated: false });
+	const { url } = database;
 	sql = new SQL({ url, max: 2 });
 	server = await startBuiltServer({ DATABASE_URL: url, DEV_USER: "dev-user" });
 }, 30_000);
@@ -31,7 +32,7 @@ afterAll(async () => {
 	if (!ready) return;
 	await server?.stop();
 	await sql?.close();
-	await dbs.dropAll();
+	await database?.drop();
 });
 
 class SseReader {
@@ -124,14 +125,14 @@ describe.skipIf(!ready)("GET /api/events", () => {
 		await sql.notify(
 			"tasks_ops",
 			JSON.stringify({
-				account_key: "someone-else",
+				to: "someone-else",
 				event: { type: "poke", source_client_id: null },
 			}),
 		);
 		await sql.notify(
 			"tasks_ops",
 			JSON.stringify({
-				account_key: "dev-user",
+				to: "dev-user",
 				event: { type: "poke", source_client_id: "tab-7" },
 			}),
 		);
@@ -161,7 +162,7 @@ describe.skipIf(!ready)("GET /api/events", () => {
 		expect(sse.closed).toBe(false);
 		await sql.notify(
 			"tasks_ops",
-			JSON.stringify({ account_key: "dev-user", event: { type: "resync" } }),
+			JSON.stringify({ to: "dev-user", event: { type: "resync" } }),
 		);
 		await sse.waitFor("event: resync");
 		abort();

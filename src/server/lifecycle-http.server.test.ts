@@ -6,27 +6,25 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
+import type { TestDatabase } from "@viktorbarzin/pg/testing";
 import { SQL } from "bun";
 
 import {
 	type BuiltServer,
 	builtServerExists,
-	MIGRATIONS_DIR,
 	startBuiltServer,
-	TestDatabases,
-} from "./auth/testing/built-server";
+	testDatabase,
+} from "#/test/built-server";
 import {
 	NC_PASS,
 	NC_USER,
 	seededFakeNextcloud,
 } from "./caldav/testing/fixtures.server";
-import { createSqlClient } from "./db/client.server";
-import { runMigrations } from "./db/migrate.server";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const ready = Boolean(adminUrl) && builtServerExists();
 
-let dbs: TestDatabases;
+let database: TestDatabase;
 let sql: SQL;
 let server: BuiltServer;
 let dav: ReturnType<typeof Bun.serve>;
@@ -35,14 +33,8 @@ let delayNextMs = 0;
 
 beforeAll(async () => {
 	if (!ready) return;
-	dbs = new TestDatabases(adminUrl as string);
-	const url = await dbs.create();
-	const previous = process.env.DATABASE_URL;
-	process.env.DATABASE_URL = url;
-	const migrator = createSqlClient({ max: 1 });
-	process.env.DATABASE_URL = previous;
-	await runMigrations(migrator, MIGRATIONS_DIR);
-	await migrator.close();
+	database = await testDatabase(adminUrl as string);
+	const { url } = database;
 	sql = new SQL({ url, max: 2 });
 
 	const fake = seededFakeNextcloud();
@@ -72,7 +64,7 @@ afterAll(async () => {
 	await server?.stop();
 	await dav?.stop(true);
 	await sql?.close();
-	await dbs.dropAll();
+	await database?.drop();
 });
 
 async function metricsText(): Promise<string> {

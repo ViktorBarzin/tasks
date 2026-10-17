@@ -1,7 +1,13 @@
 /**
- * Environment-driven settings (backend/tasks_api/config.py). No config files:
- * the Kubernetes stack injects env and mounts secrets.
+ * Environment-driven settings (backend/tasks_api/config.py), and the only
+ * module that reads process.env. No config files: the Kubernetes stack
+ * (infra modules/kubernetes/tanstack_app) injects env and mounts secrets;
+ * each secret may be given inline or as a `<NAME>_FILE` path.
  */
+import { readFileSync } from "node:fs";
+import type { AppAuthConfig, AuthDb } from "@viktorbarzin/auth";
+import { parseMetricsPort } from "@viktorbarzin/metrics";
+import { type PgSettings, pgSettingsFromEnv } from "@viktorbarzin/pg";
 
 export const DEFAULT_CALDAV_BASE_URL =
 	"https://nextcloud.viktorbarzin.me/remote.php/dav";
@@ -14,28 +20,10 @@ export const DEFAULT_LOCAL_TIMEZONE = "Europe/Sofia";
 export interface Settings {
 	/** TASKS_FERNET_KEY: encrypts Connected Account app passwords (tasks ADR-0002). */
 	fernetKey: string | null;
-	/** DEV_USER: dev/test identity fallback. Ignored when NODE_ENV is "production". */
-	devUser: string | null;
 	/** TASKS_CALDAV_BASE_URL: the Nextcloud DAV root. */
 	caldavBaseUrl: string;
 	/** TASKS_LOCAL_TZ. */
 	localTimezone: string;
-	/** LOG_LEVEL: DEBUG | INFO | WARNING | ERROR. */
-	logLevel: string;
-}
-
-export interface DatabaseSettings {
-	/**
-	 * DATABASE_URL, normally without a password, e.g.
-	 * `postgres://tasks@pg-cluster-rw.dbaas:5432/tasks`.
-	 */
-	url: string;
-	/**
-	 * DATABASE_PASSWORD_FILE: a mounted file holding the Vault-rotated password.
-	 * Read on every new connection, so rotation does not break new connections.
-	 * When unset, the password inside DATABASE_URL is used (local dev, tests).
-	 */
-	passwordFile: string | null;
 }
 
 /**
@@ -46,30 +34,108 @@ export interface DatabaseSettings {
  */
 const runtimeEnv: Record<string, string | undefined> = process.env;
 
+export function isDevelopment(): boolean {
+	return runtimeEnv.NODE_ENV === "development";
+}
+
 export function isProduction(): boolean {
 	return runtimeEnv.NODE_ENV === "production";
 }
 
 function env(name: string): string | null {
 	const value = runtimeEnv[name];
-	return value === undefined || value === "" ? null : value;
+	return value === undefined || value.trim() === "" ? null : value.trim();
+}
+
+/** `NAME`, or the trimmed contents of the file at `NAME_FILE`. */
+function secret(name: string): string | null {
+	const inline = env(name);
+	if (inline !== null) return inline;
+	const path = env(`${name}_FILE`);
+	if (path === null) return null;
+	const text = readFileSync(path, "utf8").trim();
+	return text === "" ? null : text;
+}
+
+function list(name: string): string[] {
+	return (env(name) ?? "")
+		.split(",")
+		.map((item) => item.trim())
+		.filter(Boolean);
 }
 
 /** Read settings fresh from the environment (cheap, and keeps tests simple). */
 export function getSettings(): Settings {
 	return {
 		fernetKey: env("TASKS_FERNET_KEY"),
-		devUser: isProduction() ? null : env("DEV_USER"),
 		caldavBaseUrl: env("TASKS_CALDAV_BASE_URL") ?? DEFAULT_CALDAV_BASE_URL,
 		localTimezone: env("TASKS_LOCAL_TZ") ?? DEFAULT_LOCAL_TIMEZONE,
-		logLevel: env("LOG_LEVEL") ?? "INFO",
 	};
 }
 
-export function getDatabaseSettings(): DatabaseSettings {
-	const url = env("DATABASE_URL");
-	if (url === null) {
-		throw new Error("DATABASE_URL is not set");
-	}
-	return { url, passwordFile: env("DATABASE_PASSWORD_FILE") };
+export function databaseConfigured(): boolean {
+	return env("DATABASE_URL") !== null;
+}
+
+/**
+ * DATABASE_URL, normally without a password, and DATABASE_PASSWORD_FILE, a
+ * mounted file with the Vault-rotated password, read on every new connection.
+ */
+export function pgSettings(): PgSettings {
+	return pgSettingsFromEnv(runtimeEnv);
+}
+
+/** METRICS_PORT (9090 in the image), and HOST to bind it to. */
+export function metricsListen(): { port: number | null; hostname: string } {
+	return {
+		port: parseMetricsPort(runtimeEnv.METRICS_PORT),
+		hostname: env("HOST") ?? "0.0.0.0",
+	};
+}
+
+/**
+ * The identity config for @viktorbarzin/auth. Cookie names (`__Host-tasks.*`),
+ * logger names (`tasks.*`) and the placeholder email domain derive from the
+ * slug; the identity metrics keep their `tasks_` prefix.
+ */
+export function authConfig<TExtra extends object>(
+	db: () => AuthDb,
+	enrich: AppAuthConfig<TExtra>["enrich"],
+): AppAuthConfig<TExtra> {
+	const discoveryUrl = env("OIDC_DISCOVERY_URL");
+	const clientId = env("OIDC_CLIENT_ID");
+	const clientSecret = secret("OIDC_CLIENT_SECRET");
+	const audiences = list("API_TOKEN_AUDIENCES");
+	return {
+		appName: "Tasks",
+		appSlug: "tasks",
+		db,
+		publicOrigins: list("PUBLIC_ORIGINS"),
+		betterAuthSecret: secret("BETTER_AUTH_SECRET"),
+		oidc:
+			discoveryUrl && clientId && clientSecret
+				? { discoveryUrl, clientId, clientSecret }
+				: null,
+		...(audiences.length > 0 ? { apiTokenAudiences: audiences } : {}),
+		authentik: {
+			apiUrl: env("AUTHENTIK_API_URL"),
+			readerToken: secret("AUTHENTIK_READER_TOKEN"),
+			approverToken: secret("AUTHENTIK_APPROVER_TOKEN"),
+			usersGroupPk: env("AUTHENTIK_USERS_GROUP_ID"),
+		},
+		// The Terraform module sets AUTH_USERS_GROUP and AUTH_ADMINS_GROUP to
+		// these same names; tasks has no agents group in Terraform yet.
+		groups: {
+			users: env("AUTH_USERS_GROUP") ?? "Tasks Users",
+			admins: env("AUTH_ADMINS_GROUP") ?? "Tasks Admins",
+			agents: env("AUTH_AGENTS_GROUP") ?? "Tasks Agents",
+		},
+		guestUsername: env("AUTHENTIK_GUEST_USERNAME") ?? "guest",
+		signup: "request",
+		// DEV_USER: a dev and test fallback, never in production (and
+		// @viktorbarzin/auth ignores it while OIDC is configured).
+		devUser: isProduction() ? null : env("DEV_USER"),
+		metrics: { prefix: "tasks" },
+		...(enrich ? { enrich } : {}),
+	};
 }

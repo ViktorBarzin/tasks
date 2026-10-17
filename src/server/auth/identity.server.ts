@@ -9,18 +9,18 @@
  * deleted and the name reused), the newcomer does not inherit that data: they
  * get a key of their own, `sub:<sub>`.
  */
+import type { AuthDb } from "@viktorbarzin/auth";
+import { getLogger } from "@viktorbarzin/log";
 import { eq } from "drizzle-orm";
 
-import type { Db } from "../db/client.server";
-import { getLogger } from "../logging.server";
-import { identityLinks } from "./schema.server";
+import { identityLinks } from "../db/schema.server";
 
 const log = getLogger("tasks.identity");
 
 /** The prefix of keys minted for a subject whose username was taken. */
 export const OWN_KEY_PREFIX = "sub:";
 
-async function linkedKey(db: Db, sub: string): Promise<string | null> {
+async function linkedKey(db: AuthDb, sub: string): Promise<string | null> {
 	const rows = await db
 		.select({ accountKey: identityLinks.accountKey })
 		.from(identityLinks)
@@ -30,7 +30,7 @@ async function linkedKey(db: Db, sub: string): Promise<string | null> {
 }
 
 async function tryLink(
-	db: Db,
+	db: AuthDb,
 	sub: string,
 	accountKey: string,
 	username: string,
@@ -48,7 +48,7 @@ async function tryLink(
  * concurrency: two first requests for one subject end on the same key.
  */
 export async function accountKeyForSubject(
-	db: Db,
+	db: AuthDb,
 	sub: string,
 	preferredUsername: string,
 ): Promise<string> {

@@ -2,8 +2,11 @@
  * GET /api/me, POST /api/onboard and the per-request CalDAV engine.
  * Port of backend/tasks_api/routers/me.py, routers/onboard.py and deps.py.
  */
+
+import { getLogger } from "@viktorbarzin/log";
+import { ApiError } from "@viktorbarzin/runtime";
 import type { MeResponse, OnboardRequest } from "#/shared/contract";
-import type { AuthUser } from "../auth/user.server";
+import type { TasksUser } from "../auth/auth.server";
 import { CalDAVEngine, type CalDAVTransport } from "../caldav/engine.server";
 import { getSettings } from "../config.server";
 import {
@@ -12,8 +15,6 @@ import {
 	upsertAccount,
 } from "../db/accounts.server";
 import type { Db } from "../db/client.server";
-import { ApiError } from "../http/errors.server";
-import { getLogger } from "../logging.server";
 import type { OpsEngine } from "../ops/ops.server";
 import type { SyncEngine } from "../sync/sync.server";
 
@@ -82,7 +83,7 @@ export function buildEngine(
 /** The caller's engine; 409 `not_connected` tells the client to run onboarding. */
 export async function engineForUser(
 	db: Db,
-	user: AuthUser,
+	user: TasksUser,
 ): Promise<TasksEngine> {
 	const fernetKey = requireFernetKey();
 	const account = await getAccount(db, user.accountKey);
@@ -97,7 +98,7 @@ export async function engineForUser(
 }
 
 /** GET /api/me: `{"username", "connected"}`. */
-export async function getMe(db: Db, user: AuthUser): Promise<MeResponse> {
+export async function getMe(db: Db, user: TasksUser): Promise<MeResponse> {
 	const account = await getAccount(db, user.accountKey);
 	return { username: user.username, connected: account !== null };
 }
@@ -108,7 +109,7 @@ export async function getMe(db: Db, user: AuthUser): Promise<MeResponse> {
  */
 export async function onboard(
 	db: Db,
-	user: AuthUser,
+	user: TasksUser,
 	body: OnboardRequest,
 ): Promise<void> {
 	const fernetKey = requireFernetKey();

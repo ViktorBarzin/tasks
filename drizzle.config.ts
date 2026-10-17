@@ -6,11 +6,9 @@ import { defineConfig } from "drizzle-kit";
 // instead (src/server/db/client.server.ts).
 export default defineConfig({
 	dialect: "postgresql",
-	// The Alembic-created tables, then the identity tables.
-	schema: [
-		"./src/server/db/schema.server.ts",
-		"./src/server/auth/schema.server.ts",
-	],
+	// The Alembic-created tables, the identity tables from @viktorbarzin/auth
+	// (re-exported) and identity_links.
+	schema: "./src/server/db/schema.server.ts",
 	out: "./drizzle",
 	schemaFilter: ["public"],
 	// The retired Python build's bookkeeping table: left in place, never managed.

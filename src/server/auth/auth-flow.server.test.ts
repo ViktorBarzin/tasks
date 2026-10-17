@@ -7,23 +7,19 @@
  * request + approve, the 15-minute membership re-check, CSRF and bearer JWTs.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { TestDatabase } from "@viktorbarzin/pg/testing";
 import { SQL } from "bun";
 
-import { createSqlClient } from "../db/client.server";
-import { runMigrations } from "../db/migrate.server";
 import {
 	type BuiltServer,
 	builtServerExists,
 	CookieJar,
 	follow,
-	MIGRATIONS_DIR,
-	startBuiltServer,
-	TestDatabases,
-} from "./testing/built-server";
-import {
 	type MockAuthentik,
-	startMockAuthentik,
-} from "./testing/mock-authentik";
+	startBuiltServer,
+	startTasksAuthentik,
+	testDatabase,
+} from "#/test/built-server";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const ready = Boolean(adminUrl) && builtServerExists();
@@ -44,7 +40,7 @@ CREATE TABLE applied_ops (
 INSERT INTO alembic_version (version_num) VALUES ('0002');
 `;
 
-let dbs: TestDatabases;
+let database: TestDatabase;
 let sql: SQL;
 let mock: MockAuthentik;
 let server: BuiltServer;
@@ -53,18 +49,15 @@ let dbUrl: string;
 
 beforeAll(async () => {
 	if (!ready) return;
-	dbs = new TestDatabases(adminUrl as string);
-	dbUrl = await dbs.create();
-	sql = new SQL(dbUrl);
-	await sql.unsafe(ALEMBIC_SCHEMA);
-	const previous = process.env.DATABASE_URL;
-	process.env.DATABASE_URL = dbUrl;
-	const migrator = createSqlClient({ max: 1 });
-	process.env.DATABASE_URL = previous;
-	await runMigrations(migrator, MIGRATIONS_DIR);
-	await migrator.close();
+	database = await testDatabase(adminUrl as string, {
+		before: async (url) => {
+			sql = new SQL(url);
+			await sql.unsafe(ALEMBIC_SCHEMA);
+		},
+	});
+	dbUrl = database.url;
 
-	mock = await startMockAuthentik();
+	mock = await startTasksAuthentik();
 	mock.addUser({ username: "guest", email: null, groups: ["Public Guests"] });
 	server = await startBuiltServer(
 		{
@@ -89,7 +82,7 @@ afterAll(async () => {
 	await unconfigured?.stop();
 	await mock?.stop();
 	await sql?.close();
-	await dbs.dropAll();
+	await database?.drop();
 });
 
 /** Sign `username` in through the whole OAuth flow, starting at `path`. */
@@ -593,7 +586,7 @@ describe.skipIf(!ready)("API bearer tokens", () => {
 	});
 
 	test("a token from another issuer is refused", async () => {
-		const other = await startMockAuthentik();
+		const other = await startTasksAuthentik();
 		try {
 			const token = await other.mintAccessToken({
 				sub: "x",
