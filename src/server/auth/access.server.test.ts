@@ -243,36 +243,39 @@ describe.skipIf(!adminUrl)("membership re-check", () => {
 	test.each([
 		["AUTHENTIK_READER_TOKEN", "reader"],
 		["AUTHENTIK_API_URL", "api"],
-	])("with %s unset a stale answer is not kept (fails closed)", async (name, tag) => {
-		const user = mock.addUser({
-			username: `unconfigured-${tag}@example.com`,
-			groups: ["Tasks Users"],
-		});
-		await saveMemberCheck(
-			db,
-			user.uid,
-			user.username,
-			{ member: true, admin: true },
-			"api",
-			new Date(0),
-		);
-		setEnv(name, undefined);
-		try {
-			expect(await currentMembership(db, user.uid, user.username)).toEqual({
-				member: false,
-				admin: false,
+	])(
+		"with %s unset a stale answer is not kept (fails closed)",
+		async (name, tag) => {
+			const user = mock.addUser({
+				username: `unconfigured-${tag}@example.com`,
+				groups: ["Tasks Users"],
 			});
-		} finally {
-			setEnv(
-				name,
-				name === "AUTHENTIK_API_URL" ? mock.apiUrl : mock.readerToken,
+			await saveMemberCheck(
+				db,
+				user.uid,
+				user.username,
+				{ member: true, admin: true },
+				"api",
+				new Date(0),
 			);
-		}
-		// Once configured again, the real answer comes back.
-		expect((await currentMembership(db, user.uid, user.username)).member).toBe(
-			true,
-		);
-	});
+			setEnv(name, undefined);
+			try {
+				expect(await currentMembership(db, user.uid, user.username)).toEqual({
+					member: false,
+					admin: false,
+				});
+			} finally {
+				setEnv(
+					name,
+					name === "AUTHENTIK_API_URL" ? mock.apiUrl : mock.readerToken,
+				);
+			}
+			// Once configured again, the real answer comes back.
+			expect(
+				(await currentMembership(db, user.uid, user.username)).member,
+			).toBe(true);
+		},
+	);
 });
 
 describe.skipIf(!adminUrl)("request + approve", () => {

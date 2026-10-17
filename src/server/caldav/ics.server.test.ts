@@ -71,15 +71,16 @@ afterEach(() => {
 });
 
 describe("round trip", () => {
-	test.each(
-		GOLDENS,
-	)("pure parse and serialise preserves every line: %s", (name: GoldenName) => {
-		const original = loadGolden(name);
-		const out = new ICAL.Component(ICAL.parse(original)).toString();
-		expect([...unfoldLines(out.replace(/\r?\n/g, "\r\n"))].sort()).toEqual(
-			[...unfoldLines(original)].sort(),
-		);
-	});
+	test.each(GOLDENS)(
+		"pure parse and serialise preserves every line: %s",
+		(name: GoldenName) => {
+			const original = loadGolden(name);
+			const out = new ICAL.Component(ICAL.parse(original)).toString();
+			expect([...unfoldLines(out.replace(/\r?\n/g, "\r\n"))].sort()).toEqual(
+				[...unfoldLines(original)].sort(),
+			);
+		},
+	);
 });
 
 describe("parseTask", () => {
@@ -252,14 +253,19 @@ describe("parseTask", () => {
 });
 
 describe("applyFields", () => {
-	test.each(
-		GOLDENS,
-	)("title edit preserves all other properties: %s", (name: GoldenName) => {
-		const original = loadGolden(name);
-		const modified = applyFields(original, fields({ title: "New title" }), NOW);
-		expectUntouchedPreserved(original, modified, ["SUMMARY"]);
-		expect(has(modified, "SUMMARY:New title")).toBe(true);
-	});
+	test.each(GOLDENS)(
+		"title edit preserves all other properties: %s",
+		(name: GoldenName) => {
+			const original = loadGolden(name);
+			const modified = applyFields(
+				original,
+				fields({ title: "New title" }),
+				NOW,
+			);
+			expectUntouchedPreserved(original, modified, ["SUMMARY"]);
+			expect(has(modified, "SUMMARY:New title")).toBe(true);
+		},
+	);
 
 	test("title edit bumps SEQUENCE and stamps", () => {
 		const original = loadGolden("apple_recurring_alarm.ics"); // SEQUENCE:3
@@ -401,15 +407,14 @@ describe("applyFields", () => {
 		expect(anyStartsWith(cleared, "PRIORITY")).toBe(false);
 	});
 
-	test.each([
-		[{ priority: 3 }],
-		[{ priority: "1" }],
-		[{ priority: true }],
-	])("invalid priority rejected: %p", (bad) => {
-		expect(() =>
-			applyFields(loadGolden("nextcloud_simple.ics"), fields(bad), NOW),
-		).toThrow(MapperError);
-	});
+	test.each([[{ priority: 3 }], [{ priority: "1" }], [{ priority: true }]])(
+		"invalid priority rejected: %p",
+		(bad) => {
+			expect(() =>
+				applyFields(loadGolden("nextcloud_simple.ics"), fields(bad), NOW),
+			).toThrow(MapperError);
+		},
+	);
 
 	// -- sort_order <-> X-APPLE-SORT-ORDER (contract delta v1.3)
 
@@ -659,14 +664,14 @@ describe("buildVtodo", () => {
 		expect(parseTask(ics)?.sort_order).toBe(3072);
 	});
 
-	test.each([
-		[{ title: "t" }],
-		[{ title: "t", sort_order: null }],
-	])("without sort_order writes no property: %p", (f) => {
-		const ics = buildVtodo("new-uid-4", fields(f), NOW);
-		expect(anyStartsWith(ics, "X-APPLE-SORT-ORDER")).toBe(false);
-		expect(parseTask(ics)?.sort_order).toBeNull();
-	});
+	test.each([[{ title: "t" }], [{ title: "t", sort_order: null }]])(
+		"without sort_order writes no property: %p",
+		(f) => {
+			const ics = buildVtodo("new-uid-4", fields(f), NOW);
+			expect(anyStartsWith(ics, "X-APPLE-SORT-ORDER")).toBe(false);
+			expect(parseTask(ics)?.sort_order).toBeNull();
+		},
+	);
 
 	test("the template carries the Python build's bookkeeping", () => {
 		const ics = buildVtodo("new-uid-5", fields({ title: "t" }), NOW);

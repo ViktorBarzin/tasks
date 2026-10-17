@@ -176,16 +176,14 @@ describe("listTaskLists (test_sync lists)", () => {
 		]);
 	});
 
-	test.each([
-		"alphabetical",
-		"",
-		"Priority",
-		" due ",
-	])("a foreign sort-mode %p reads as unset or trimmed", async (value) => {
-		fake.calendar(NC_USER, "work").sortMode = value;
-		const work = (await engine.listTaskLists()).find((l) => l.id === "work");
-		expect(work?.sortMode).toBe(value.trim() === "due" ? "due" : null);
-	});
+	test.each(["alphabetical", "", "Priority", " due "])(
+		"a foreign sort-mode %p reads as unset or trimmed",
+		async (value) => {
+			fake.calendar(NC_USER, "work").sortMode = value;
+			const work = (await engine.listTaskLists()).find((l) => l.id === "work");
+			expect(work?.sortMode).toBe(value.trim() === "due" ? "due" : null);
+		},
+	);
 
 	test("an unparseable calendar-order is null; a missing name falls back to the id", async () => {
 		const body = `<?xml version="1.0"?>
@@ -502,14 +500,15 @@ describe("upstream failures (test_ops retry)", () => {
 		);
 	});
 
-	test.each([
-		500, 502, 503, 504,
-	])("HTTP %d is CalDAVTransient", async (status) => {
-		const flaky = engineWith(async () => new Response("boom", { status }));
-		await expect(flaky.putObject(NC_SIMPLE, "x")).rejects.toBeInstanceOf(
-			CalDAVTransient,
-		);
-	});
+	test.each([500, 502, 503, 504])(
+		"HTTP %d is CalDAVTransient",
+		async (status) => {
+			const flaky = engineWith(async () => new Response("boom", { status }));
+			await expect(flaky.putObject(NC_SIMPLE, "x")).rejects.toBeInstanceOf(
+				CalDAVTransient,
+			);
+		},
+	);
 
 	test("a transport error is CalDAVTransient", async () => {
 		const down = engineWith(async () => {
