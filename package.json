@@ -63,7 +63,7 @@
 		"@biomejs/biome": "2.6.4",
 		"@happy-dom/global-registrator": "^21.0.1",
 		"@playwright/test": "^1.64.0",
-		"@tanstack/devtools-vite": "0.8.5",
+		"@tanstack/devtools-vite": "0.8.6",
 		"@tanstack/intent": "0.5.6",
 		"@testing-library/dom": "^10.4.2",
 		"@testing-library/jest-dom": "^7.0.1",
