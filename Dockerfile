@@ -6,7 +6,7 @@
 # image as an init container or Job, with args ["entrypoints/migrate.js"].
 
 # --- build: install with the pinned Bun, then vite build + bundled entrypoints
-FROM oven/bun:1.4.3 AS build
+FROM oven/bun:1.4.4 AS build
 WORKDIR /src
 COPY package.json bun.lock bunfig.toml ./
 RUN bun install --frozen-lockfile
@@ -14,7 +14,7 @@ COPY . .
 RUN bun run build
 
 # --- runtime: distroless Bun, non-root, only the build output
-FROM oven/bun:1.4.3-distroless
+FROM oven/bun:1.4.4-distroless
 WORKDIR /app
 # METRICS_PORT: /metrics on its own port, never routed by the ingress.
 # NO_COLOR: srvx's shutdown lines without ANSI codes.
