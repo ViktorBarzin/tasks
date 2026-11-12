@@ -108,7 +108,8 @@ src/
     realtime/        @viktorbarzin/realtime wiring: the poke event and channel
   entrypoints/       bundled with `bun build --target bun` (migrate)
   start.ts           global request middleware (idle timeout, metrics, access
-                     log, anti-framing headers, CSRF)
+                     log, telemetry request context, anti-framing headers,
+                     CSRF) and the visitor-id function middleware
 e2e/                 Playwright, against the built server (sw/: live service worker)
 drizzle/             migrations; 0000_baseline.sql was pulled from Alembic's schema
 ```
@@ -251,15 +252,48 @@ bun run start        # serve .output on $HOST:$PORT
 | `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
 | `HOST`, `PORT` | listen address; the image uses `0.0.0.0:3000` |
 | `METRICS_PORT` | second listener serving only `/metrics`; the image uses `9090`; unset means no metrics listener |
+| `SERVICE_VERSION` | the commit the image was built from (set in the image); `service.version` on logs, the telemetry release |
+| `TELEMETRY_WRITE_KEY` | the event pipeline's write key; telemetry is off without it |
+| `TELEMETRY_HOST` | the event pipeline, default `http://event-pipeline.rybbit.svc.cluster.local` |
+| `TELEMETRY_ENVIRONMENT` | `deployment.environment.name` and Sentry's environment; default `production` under `NODE_ENV=production`, else `dev` |
+| `SENTRY_DSN` | GlitchTip for the server (in-cluster Service) |
+| `SENTRY_BROWSER_DSN` | GlitchTip for the browser, `https://<key>@tasks.viktorbarzin.me/_t/x/<project>` |
+| `TELEMETRY` | `off` turns telemetry off even with a write key |
 
 Every secret above also reads from a `*_FILE` path.
 
-Logs are JSON lines on stderr with `ts`, `level`, `logger`, `msg` and extras.
-Console output from Nitro, srvx and
-uncaught errors goes through the same logger (logger `console`); srvx's
-one-line shutdown notice is the only plain line. `/healthz` is on the app
+Logs are JSON lines on stdout with OpenTelemetry field names
+(`@viktorbarzin/log` 1.0, app-kit ADR-0002): `timestamp`, `severity_text`,
+`severity_number`, `body`, `logger.name`, `service.name`,
+`service.version`, `deployment.environment.name`, `enduser.id` (the caller's
+`sub`, set in `src/server/http/api.server.ts`) and extras. Console output
+from Nitro, srvx and uncaught errors goes through the same logger (logger
+`console`); srvx's one-line shutdown notice is the only plain line. `/healthz` is on the app
 port; `/metrics` (prom-client) is only on `METRICS_PORT`, which the ingress
 never routes.
+
+## Telemetry
+
+Product events, pageviews, replay and errors follow the platform standard
+(infra ADR-0041, tasks ADR-0005), through `@viktorbarzin/telemetry`:
+
+- Server events for core actions are in `src/server/product-events.server.ts`
+  (`account.connected`, `task.created`, `task.completed`, `list.created`).
+  `applyOps` sends one for each op that took effect, never for a duplicate,
+  retry or per-op error.
+- Browser events for actions only the page sees are in `src/client/events.ts`
+  (`smart_view.opened`, `completed_tasks.toggled`, `search.started`,
+  `task_sheet.opened`). Do not add a browser event for something that becomes
+  an op; the server sends that one. Tests swap the sender with
+  `setTrackForTests`.
+- `src/start.ts` runs every request in `withRequestContext` and adds the
+  Rybbit visitor id to server function calls; `src/client/api.ts` adds it to
+  `/api` calls.
+- `src/components/Telemetry.tsx` fetches the settings from a server function
+  after load (the shell is cached offline) and identifies the signed-in
+  person on every load.
+- Names are `noun.past_verb`, property keys snake_case, and properties carry
+  no task content.
 
 ## Process lifecycle
 
@@ -272,7 +306,8 @@ never routes.
 - The LISTEN connection opens at boot when `DATABASE_URL` is set, so the
   realtime gauges mean something before the first subscriber.
 - SIGTERM/SIGINT close the SSE streams and the LISTEN connection, wait up to
-  5 s for in-flight requests, close the pool and exit 0.
+  5 s for in-flight requests, send queued telemetry (2 s at most), close the
+  pool and exit 0.
 
 ## Serving traffic
 

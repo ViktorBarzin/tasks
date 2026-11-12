@@ -6,6 +6,7 @@
  * is exercised end to end in src/server/account/api.server.test.ts.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { TrackParams } from "@viktorbarzin/telemetry/server";
 import {
 	CalDAVError,
 	CalDAVTransient,
@@ -72,12 +73,14 @@ let nc: FakeNextcloud;
 let journal: MemoryJournal;
 let pokes: Array<[string, string | null]>;
 let pokeError: Error | undefined;
+let tracked: TrackParams[];
 
 beforeEach(() => {
 	nc = seededNextcloud();
 	journal = new MemoryJournal();
 	pokes = [];
 	pokeError = undefined;
+	tracked = [];
 });
 
 const op = (kind: string, opId: string, fields: Record<string, unknown> = {}) =>
@@ -100,6 +103,8 @@ async function rawOps(
 				if (pokeError) throw pokeError;
 				pokes.push([accountKey, clientId]);
 			},
+			userId: "sub-viktor",
+			track: (message) => tracked.push(message),
 		},
 		ops,
 	);
@@ -1174,5 +1179,61 @@ describe("realtime poke", () => {
 			op("list_reorder", "r1", { list_id: "work", order: 1 }),
 		]);
 		expect(statuses(results)).toEqual(["applied"]);
+	});
+});
+
+// ---------------------------------------------------------------- product events
+
+describe("product events (tasks ADR-0005)", () => {
+	test("an applied create, completion and new List each send one event with the caller's sub", async () => {
+		await postOps(
+			op("list_create", "l1", { list_id: "garden", name: "Garden" }),
+			op("task_create", "c1", {
+				uid: "client-uid-1",
+				list_id: "work",
+				title: "Write the report",
+				due: "2026-07-10T09:00:00+00:00",
+				due_has_time: true,
+				priority: 5,
+			}),
+			op("task_complete", "d1", {
+				uid: NC_SIMPLE_UID,
+				completed_at: "2026-07-02T08:30:00+00:00",
+			}),
+			op("list_reorder", "r1", { list_id: "work", order: 1 }),
+		);
+		expect(tracked).toEqual([
+			{ event: "list.created", userId: "sub-viktor", properties: {} },
+			{
+				event: "task.created",
+				userId: "sub-viktor",
+				properties: { has_due_date: true, priority: 5 },
+			},
+			{ event: "task.completed", userId: "sub-viktor", properties: {} },
+		]);
+	});
+
+	test("replays, per-op errors and unknown kinds send nothing", async () => {
+		const create = op("task_create", "c1", {
+			uid: "client-uid-1",
+			list_id: "work",
+			title: "Once",
+		});
+		await postOps(create);
+		tracked = [];
+		await rawOps([
+			create,
+			op("task_explode", "z"),
+			op("task_update", "u", { uid: "ghost", title: "x" }),
+		]);
+		expect(tracked).toEqual([]);
+	});
+
+	test("a transient failure sends nothing for the op it stopped at", async () => {
+		failPutsInto("personal", () => new CalDAVTransient("upstream HTTP 503"));
+		await rawOps([
+			op("task_create", "c1", { uid: "x-1", list_id: "personal", title: "x" }),
+		]);
+		expect(tracked).toEqual([]);
 	});
 });

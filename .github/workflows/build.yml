@@ -106,6 +106,9 @@ jobs:
           # Single-manifest images (no provenance/SBOM attestation children) so
           # registry retention can never orphan index children (ADR-0002).
           provenance: false
+          # Logs carry it as service.version, telemetry as the release.
+          build-args: |
+            SERVICE_VERSION=${{ steps.meta.outputs.sha }}
           tags: |
             ghcr.io/viktorbarzin/tasks:${{ steps.meta.outputs.sha }}
             ${{ github.ref == 'refs/heads/master' && 'ghcr.io/viktorbarzin/tasks:latest' || '' }}

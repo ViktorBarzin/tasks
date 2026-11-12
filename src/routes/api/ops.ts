@@ -25,6 +25,7 @@ export const Route = createFileRoute("/api/ops")({
 									accountKey: user.accountKey,
 									now: new Date(),
 									sourceClientId: request.headers.get(CLIENT_ID_HEADER),
+									userId: user.sub,
 								},
 								ops,
 							),

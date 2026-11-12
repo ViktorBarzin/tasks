@@ -1,3 +1,5 @@
+import { completedTasksToggled } from "#/client/events";
+
 interface CompletedBarProps {
 	count: number;
 	shown: boolean;
@@ -13,7 +15,14 @@ export function CompletedBar({ count, shown, onToggle }: CompletedBarProps) {
 	return (
 		<div className="completed-bar">
 			<span className="count">{count} Completed</span>
-			<button type="button" className="toggle" onClick={onToggle}>
+			<button
+				type="button"
+				className="toggle"
+				onClick={() => {
+					completedTasksToggled(!shown);
+					onToggle();
+				}}
+			>
 				{shown ? "Hide" : "Show"}
 			</button>
 		</div>

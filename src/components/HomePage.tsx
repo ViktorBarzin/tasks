@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type KeyboardEvent, useMemo, useState } from "react";
 
 import { createList, reorderLists } from "#/client/actions";
+import { useSearchStarted } from "#/client/events";
 import { replica, replicaLoaded } from "#/client/replica";
 import type { Task, TaskList } from "#/client/types";
 import { now as clock } from "#/client/ui/clock";
@@ -48,6 +49,7 @@ export function HomePage() {
 	const now = useStore(clock);
 
 	const [query, setQuery] = useState("");
+	useSearchStarted(query, "home");
 	const [addListOpen, setAddListOpen] = useState(false);
 	const [newTaskOpen, setNewTaskOpen] = useState(false);
 	const [sheetTask, setSheetTask] = useState<Task | null>(null);

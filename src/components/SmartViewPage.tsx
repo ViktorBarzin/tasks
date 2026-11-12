@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { createTask, recentlyCompleted } from "#/client/actions";
 import { todayKey } from "#/client/dates";
+import { smartViewOpened, useSearchStarted } from "#/client/events";
 import { replica } from "#/client/replica";
 import type { Priority, Task } from "#/client/types";
 import { now as clock } from "#/client/ui/clock";
@@ -54,6 +55,7 @@ export function SmartViewPage({ view: viewParam }: { view: string }) {
 
 	useEffect(() => {
 		if (!view) void navigate({ to: "/", replace: true });
+		else smartViewOpened(view);
 	}, [view, navigate]);
 
 	const state = useStore(replica);
@@ -61,6 +63,7 @@ export function SmartViewPage({ view: viewParam }: { view: string }) {
 	const grace = useStore(recentlyCompleted);
 
 	const [query, setQuery] = useState("");
+	useSearchStarted(query, "smart_view");
 	const [showCompleted, setShowCompleted] = useState(false);
 	const [sheetTask, setSheetTask] = useState<Task | null>(null);
 	const [draftTitle, setDraftTitle] = useState("");

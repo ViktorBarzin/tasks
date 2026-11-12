@@ -20,6 +20,7 @@
  */
 
 import { getLogger } from "@viktorbarzin/log";
+import { track } from "@viktorbarzin/telemetry/server";
 import {
 	MUTABLE_TASK_FIELDS,
 	OP_KINDS,
@@ -47,6 +48,7 @@ import { MapperError, type OpTaskFields } from "../caldav/ics.server";
 import { RecurrenceError } from "../caldav/recurrence.server";
 
 import { appMetrics } from "../metrics.server";
+import { opAppliedEvent, type Track } from "../product-events.server";
 import { pokeUser } from "../realtime/realtime.server";
 import type { OpJournal } from "./journal.server";
 import {
@@ -104,6 +106,10 @@ export interface ApplyOpsContext {
 	mapper?: TaskMapper;
 	/** Defaults to realtime pokeUser; tests observe it. */
 	poke?: (accountKey: string, sourceClientId: string | null) => Promise<void>;
+	/** The caller's Authentik `sub`, the product events' userId (ADR-0005). */
+	userId?: string | null;
+	/** Defaults to @viktorbarzin/telemetry's server track; tests observe it. */
+	track?: Track;
 }
 
 type ApplyStatus = Extract<OpStatus, "applied" | "lww_reapplied" | "duplicate">;
@@ -581,6 +587,10 @@ export async function applyOps(
 			continue;
 		}
 		journaled.add(op.op_id);
+		if (status !== "duplicate") {
+			const event = opAppliedEvent(op, ctx.userId ?? null);
+			if (event) (ctx.track ?? track)(event);
+		}
 		if (status === "lww_reapplied") {
 			log.info("silent LWW re-apply", {
 				user: accountKey,

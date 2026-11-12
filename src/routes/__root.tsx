@@ -11,6 +11,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
 
 import { AppGate } from "#/components/AppGate";
+import { Telemetry } from "#/components/Telemetry";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
 
@@ -58,6 +59,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 				content: "black-translucent",
 			},
 			{ name: "apple-mobile-web-app-title", content: "Tasks" },
+			// First-party: the page loads telemetry itself, so the ingress's
+			// injection plugin leaves it alone (infra ADR-0041).
+			{ name: "analytics", content: "sdk" },
 			{ title: "Tasks" },
 		],
 		links: [
@@ -88,11 +92,17 @@ function isUngated(pathname: string): boolean {
 
 function RootLayout() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
-	if (isUngated(pathname)) return <Outlet />;
 	return (
-		<AppGate>
-			<Outlet />
-		</AppGate>
+		<>
+			<Telemetry />
+			{isUngated(pathname) ? (
+				<Outlet />
+			) : (
+				<AppGate>
+					<Outlet />
+				</AppGate>
+			)}
+		</>
 	);
 }
 

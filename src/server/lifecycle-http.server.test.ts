@@ -137,7 +137,7 @@ describe.skipIf(!ready)("the built server's lifecycle", () => {
 		expect(body.lists.length).toBeGreaterThan(0);
 	}, 40_000);
 
-	test("errors and console output reach stderr as JSON lines", async () => {
+	test("errors and console output are JSON lines with the OpenTelemetry fields", async () => {
 		const res = await fetch(`${server.origin}/_serverFn/garbage`, {
 			method: "POST",
 			headers: { origin: server.origin, "content-type": "application/json" },
@@ -148,7 +148,14 @@ describe.skipIf(!ready)("the built server's lifecycle", () => {
 		const notJson = server.logs.filter((line) => {
 			try {
 				const record = JSON.parse(line) as Record<string, unknown>;
-				return !(record.ts && record.level && record.logger && "msg" in record);
+				return !(
+					record.timestamp &&
+					record.severity_text &&
+					typeof record.severity_number === "number" &&
+					record["logger.name"] &&
+					record["service.name"] === "tasks" &&
+					"body" in record
+				);
 			} catch {
 				return true;
 			}

@@ -1,13 +1,15 @@
 /**
  * Thin JSON client for THE API CONTRACT (src/shared/contract.ts). Identity is
- * the session cookie the server issues after OIDC sign-in; the client sends
- * nothing else.
+ * the session cookie the server issues after OIDC sign-in; the client also
+ * sends its tab id and, on production hosts, its Rybbit visitor id.
  *
  * Session expiry is detected by a 401 (ADR-0001, Pilot / Client continuity).
  * The Svelte build sat behind forward-auth and detected the Authentik bounce
  * as an `opaqueredirect`; this server answers /api without a session with a
  * 401 `unauthorized` envelope instead, and redirects are not special.
  */
+import { visitorHeaders } from "@viktorbarzin/telemetry/browser";
+
 import { CLIENT_ID_HEADER, type ErrorEnvelope } from "#/shared/contract";
 
 import type { Me, Op, OpsResponse, SyncPayload } from "./types";
@@ -91,6 +93,9 @@ async function request<T>(
 			accept: "application/json",
 			...(init?.body ? { "content-type": "application/json" } : {}),
 			[CLIENT_ID_HEADER]: clientId(),
+			// The Rybbit visitor id, so server product events join this
+			// browser's person (ADR-0005); empty off the production hosts.
+			...visitorHeaders(),
 			...extraHeaders,
 		},
 	});

@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { createTask, deleteTask, moveTask, updateTask } from "#/client/actions";
 import { dueToInputs, inputsToDue, todayKey } from "#/client/dates";
+import { taskSheetOpened } from "#/client/events";
 import { replica } from "#/client/replica";
 import type { Priority, Task, TaskFields } from "#/client/types";
 import { useStore } from "#/client/useStore";
@@ -70,6 +71,7 @@ export function TaskSheet({
 	const wasOpen = useRef(false);
 	useLayoutEffect(() => {
 		if (open && !wasOpen.current) {
+			taskSheetOpened(task ? "edit" : "new");
 			setConfirmDelete(false);
 			if (task) {
 				setTitle(task.title);

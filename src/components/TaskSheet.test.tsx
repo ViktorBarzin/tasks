@@ -1,11 +1,19 @@
 import "fake-indexeddb/auto";
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IDBFactory } from "fake-indexeddb";
 
 import * as db from "#/client/db";
+import { setTrackForTests } from "#/client/events";
 import {
 	_resetReplicaForTests,
 	foldServerState,
@@ -18,6 +26,11 @@ import type { Task } from "#/client/types";
 import { TaskSheet } from "./TaskSheet";
 
 const realFetch = globalThis.fetch;
+const sent: string[] = [];
+const restoreTrack = setTrackForTests((name, properties) => {
+	sent.push(`${name} ${JSON.stringify(properties)}`);
+});
+afterAll(() => restoreTrack());
 
 function task(extra: Partial<Task> = {}): Task {
 	return {
@@ -64,6 +77,19 @@ afterEach(() => {
 });
 
 describe("TaskSheet", () => {
+	it("records each opening once, edit or new (task_sheet.opened)", () => {
+		sent.length = 0;
+		const t = get(replica).tasks.get("t1") as Task;
+		const { rerender } = render(<TaskSheet open task={t} onClose={() => {}} />);
+		rerender(<TaskSheet open task={t} onClose={() => {}} />);
+		rerender(<TaskSheet open={false} task={t} onClose={() => {}} />);
+		rerender(<TaskSheet open defaultListId="l-a" onClose={() => {}} />);
+		expect(sent).toEqual([
+			'task_sheet.opened {"mode":"edit"}',
+			'task_sheet.opened {"mode":"new"}',
+		]);
+	});
+
 	it("saving an edit emits only the changed fields, then a move with both endpoints", async () => {
 		let closed = false;
 		const t = get(replica).tasks.get("t1") as Task;

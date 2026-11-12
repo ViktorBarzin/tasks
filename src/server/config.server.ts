@@ -139,3 +139,59 @@ export function authConfig<TExtra extends object>(
 		...(enrich ? { enrich } : {}),
 	};
 }
+
+/** The service fields for logs and telemetry (tasks ADR-0005). */
+export function serviceInfo(): {
+	name: string;
+	version: string;
+	environment: string;
+} {
+	return {
+		name: "tasks",
+		// The image sets SERVICE_VERSION to the commit it was built from.
+		version: env("SERVICE_VERSION") ?? "dev",
+		environment:
+			env("TELEMETRY_ENVIRONMENT") ?? (isProduction() ? "production" : "dev"),
+	};
+}
+
+export interface TelemetrySettings {
+	writeKey: string;
+	/** The event pipeline inside the cluster, for server-side events. */
+	host: string;
+	/** The Rybbit site the first-party apps share. */
+	siteId: string;
+	/** GlitchTip for the server, over the cluster network. */
+	serverDsn: string | null;
+	/** GlitchTip for the browser, `https://<key>@<app host>/_t/x/<project>`. */
+	browserDsn: string | null;
+	/** The browser sends only from these domains and their subdomains. */
+	productionHosts: string[];
+	release: string;
+	environment: string;
+}
+
+const TELEMETRY_OFF = new Set(["off", "false", "0", "no"]);
+
+/**
+ * Telemetry (tasks ADR-0005), from infra stacks/tasks/telemetry.tf, or null
+ * when it is off: TELEMETRY is off, or there is no write key (local runs,
+ * most tests).
+ */
+export function telemetrySettings(): TelemetrySettings | null {
+	if (TELEMETRY_OFF.has((env("TELEMETRY") ?? "").toLowerCase())) return null;
+	const writeKey = secret("TELEMETRY_WRITE_KEY");
+	if (writeKey === null) return null;
+	const service = serviceInfo();
+	return {
+		writeKey,
+		host:
+			env("TELEMETRY_HOST") ?? "http://event-pipeline.rybbit.svc.cluster.local",
+		siteId: "1",
+		serverDsn: secret("SENTRY_DSN"),
+		browserDsn: env("SENTRY_BROWSER_DSN"),
+		productionHosts: ["viktorbarzin.me"],
+		release: service.version,
+		environment: service.environment,
+	};
+}
