@@ -40,7 +40,7 @@
 		"@viktorbarzin/pg": "1.0.0",
 		"@viktorbarzin/realtime": "1.0.0",
 		"@viktorbarzin/runtime": "1.0.0",
-		"@viktorbarzin/telemetry": "0.2.0",
+		"@viktorbarzin/telemetry": "0.2.1",
 		"better-auth": "^1.7.7",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
