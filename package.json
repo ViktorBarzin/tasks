@@ -33,7 +33,7 @@
 		"@tanstack/react-router-devtools": "1.167.3",
 		"@tanstack/react-router-ssr-query": "1.167.3",
 		"@tanstack/react-start": "1.169.5",
-		"@viktorbarzin/auth": "1.0.0",
+		"@viktorbarzin/auth": "1.1.0",
 		"@viktorbarzin/log": "1.0.0",
 		"@viktorbarzin/metrics": "1.0.0",
 		"@viktorbarzin/oidc-token": "1.0.0",
