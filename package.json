@@ -37,7 +37,7 @@
 		"@viktorbarzin/log": "1.0.0",
 		"@viktorbarzin/metrics": "1.0.0",
 		"@viktorbarzin/oidc-token": "1.0.0",
-		"@viktorbarzin/pg": "1.1.0",
+		"@viktorbarzin/pg": "1.2.0",
 		"@viktorbarzin/realtime": "1.0.0",
 		"@viktorbarzin/runtime": "1.0.0",
 		"@viktorbarzin/telemetry": "0.2.1",

@@ -19,7 +19,7 @@
         "@viktorbarzin/log": "1.0.0",
         "@viktorbarzin/metrics": "1.0.0",
         "@viktorbarzin/oidc-token": "1.0.0",
-        "@viktorbarzin/pg": "1.1.0",
+        "@viktorbarzin/pg": "1.2.0",
         "@viktorbarzin/realtime": "1.0.0",
         "@viktorbarzin/runtime": "1.0.0",
         "@viktorbarzin/telemetry": "0.2.1",
@@ -939,7 +939,7 @@
 
     "@viktorbarzin/oidc-token": ["@viktorbarzin/oidc-token@1.0.0", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Foidc-token/-/1.0.0/oidc-token-1.0.0.tgz", { "dependencies": { "jose": "^6.2.12" }, "peerDependencies": { "@viktorbarzin/log": "^1.0.0" } }, "sha512-c5QpWmxmCwnogR5r8BQVwuaxlu34+M4ph6/0xsl53HG/BzvhdWMb9jWcyXZHRJQB4oh6WTUUJKpTml1mSH6b+g=="],
 
-    "@viktorbarzin/pg": ["@viktorbarzin/pg@1.1.0", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Fpg/-/1.1.0/pg-1.1.0.tgz", { "peerDependencies": { "@viktorbarzin/log": "^1.0.0", "@viktorbarzin/runtime": "^1.0.0", "drizzle-orm": "^0.45.0" } }, "sha512-GNRJTGPzdxVPqdnNriW+apCcjV0sRtE6Nd5Y5/RO4/UcEwRH1Ts/alQAOWYYJfyqQXU2kLYgMWVmxZzbXRB+rw=="],
+    "@viktorbarzin/pg": ["@viktorbarzin/pg@1.2.0", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Fpg/-/1.2.0/pg-1.2.0.tgz", { "peerDependencies": { "@viktorbarzin/log": "^1.0.0", "@viktorbarzin/runtime": "^1.0.0", "drizzle-orm": "^0.45.0" } }, "sha512-aR5nAoDjMnzjccCHE4iDj9mQFVqlXT85RmwZudu6mr7PoVFgURjGmm2kMbNN9D3dFfAYHL2hHjEORkHw4wZapA=="],
 
     "@viktorbarzin/realtime": ["@viktorbarzin/realtime@1.0.0", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Frealtime/-/1.0.0/realtime-1.0.0.tgz", { "peerDependencies": { "@tanstack/react-query": "^5.0.0", "@viktorbarzin/log": "^1.0.0", "@viktorbarzin/metrics": "^1.0.0", "@viktorbarzin/runtime": "^1.0.0", "drizzle-orm": "^0.45.0", "prom-client": "^15.1.0", "react": "^19.0.0" } }, "sha512-fx/Ryjfo/6E0+DZz+lAkuAxftOB6jl2m7QCK6xfxyKQsFYvlvgwDFJw0GvF11D7PNVA9na5+Gk3IpsQiwlleOw=="],
 
