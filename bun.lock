@@ -15,7 +15,7 @@
         "@tanstack/react-router-devtools": "1.167.3",
         "@tanstack/react-router-ssr-query": "1.167.3",
         "@tanstack/react-start": "1.169.5",
-        "@viktorbarzin/auth": "1.1.0",
+        "@viktorbarzin/auth": "1.1.1",
         "@viktorbarzin/log": "1.0.0",
         "@viktorbarzin/metrics": "1.0.0",
         "@viktorbarzin/oidc-token": "1.0.0",
@@ -931,7 +931,7 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@viktorbarzin/auth": ["@viktorbarzin/auth@1.1.0", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Fauth/-/1.1.0/auth-1.1.0.tgz", { "dependencies": { "jose": "^6.2.12" }, "peerDependencies": { "@viktorbarzin/log": "^1.0.0", "@viktorbarzin/metrics": "^1.0.0", "@viktorbarzin/oidc-token": "^1.0.0", "@viktorbarzin/runtime": "^1.0.0", "better-auth": ">=1.7.7 <1.8.0", "drizzle-orm": "^0.45.0", "prom-client": "^15.1.0" } }, "sha512-RiajgC0/CEEFsRZ+Qz6ymyqjSI70mn0cPJtmrcZmTXMxbTOxgkpJownq+cKR5qRDJQSrN/6kIrdvLzK1PITWRg=="],
+    "@viktorbarzin/auth": ["@viktorbarzin/auth@1.1.1", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Fauth/-/1.1.1/auth-1.1.1.tgz", { "dependencies": { "jose": "^6.2.12" }, "peerDependencies": { "@viktorbarzin/log": "^1.0.0", "@viktorbarzin/metrics": "^1.0.0", "@viktorbarzin/oidc-token": "^1.0.0", "@viktorbarzin/runtime": "^1.0.0", "better-auth": ">=1.7.7 <1.8.0", "drizzle-orm": "^0.45.0", "prom-client": "^15.1.0" } }, "sha512-CE4ftKiXBbCAgxC2hOLa/dxjrdOd/We1xFU3iO9jb+qrxEuvC1zhQelNsBZwQy76DHiO1qH7VvBbxLTjT0rAqg=="],
 
     "@viktorbarzin/log": ["@viktorbarzin/log@1.0.0", "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/%40viktorbarzin%2Flog/-/1.0.0/log-1.0.0.tgz", {}, "sha512-mwO0CKHOcJSFHi8NKl2cHnh3Unoz/xMCqhPNp/mRZNOZskQf0Ab5pJ8uFqTCFs1LPioopLnZgH5iMW04xg+xCA=="],
 
