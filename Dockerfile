@@ -6,7 +6,7 @@
 # image as an init container or Job, with args ["entrypoints/migrate.js"].
 
 # --- build: install with the pinned Bun, then vite build + bundled entrypoints
-FROM oven/bun:1.4.4 AS build
+FROM oven/bun:1.4.5 AS build
 WORKDIR /src
 COPY package.json bun.lock bunfig.toml ./
 RUN bun install --frozen-lockfile
@@ -14,7 +14,7 @@ COPY . .
 RUN bun run build
 
 # --- runtime: distroless Bun, non-root, only the build output
-FROM oven/bun:1.4.4-distroless
+FROM oven/bun:1.4.5-distroless
 WORKDIR /app
 # SERVICE_VERSION: the commit the image is built from (build.yml passes it);
 # logs carry it as service.version and telemetry as the release.
