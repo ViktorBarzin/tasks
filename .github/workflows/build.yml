@@ -11,9 +11,12 @@ name: Build and Push
 # Committed on the FORGEJO side (the mirror is one-way; commits made on GitHub
 # are overwritten by the next sync).
 on:
-  push:
-    branches: [master, "wizard/ts-*"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label. Woodpecker's ci-route sets it (infra ci/route).
+        type: string
+        default: ubuntu-latest
 
 permissions:
   contents: read
@@ -21,7 +24,7 @@ permissions:
 
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     services:
       # Database tests (and the HTTP tests against the built server) run when
       # TEST_DATABASE_URL is set; each test makes and drops its own database.
@@ -61,7 +64,7 @@ jobs:
 
   build:
     needs: lint-and-test
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     outputs:
       image_tag: ${{ steps.meta.outputs.sha }}
     steps:
@@ -126,7 +129,7 @@ jobs:
   deploy:
     needs: build
     if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     steps:
       # Signal Woodpecker (repo 212 = ViktorBarzin/tasks mirror) to run
       # .woodpecker/deploy.yml — kubectl set image in-cluster (agent SA is cluster-admin).
@@ -148,7 +151,7 @@ jobs:
   notify-failure:
     needs: [lint-and-test, build, deploy]
     if: failure()
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     # Reads this workflow's earlier runs, so a failure streak posts once.
     permissions:
       actions: read
